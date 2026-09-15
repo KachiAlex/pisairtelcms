@@ -43,6 +43,11 @@ export const authOptions: NextAuthOptions = {
           return null
         }
 
+        if (user.isSuspended) {
+          logger.warn('auth.authorize.suspended', { userId: user.id, email: user.email })
+          return null
+        }
+
         // If churchSlug is provided, verify user belongs to that church.
         // SUPER_ADMIN users are multi-tenant and do not belong to a specific church.
         if (credentials.churchSlug && user.role !== 'SUPER_ADMIN') {

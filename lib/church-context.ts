@@ -13,22 +13,35 @@ export async function getCurrentChurchId(userId?: string): Promise<string | null
   const cookieStore = await cookies()
   const churchIdFromCookie = cookieStore.get(CHURCH_COOKIE_NAME)?.value
 
+  // Resolve the user first — the cookie is client-controlled and must never
+  // grant access to a church the user does not belong to.
+  const user = userId ? await UserService.findById(userId) : null
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN'
+
   if (churchIdFromCookie) {
-    // Verify church exists
-    const church = await ChurchService.findById(churchIdFromCookie)
-    if (church) {
-      logger.info('tenant.current_church.from_cookie', { userId, churchId: churchIdFromCookie })
-      return churchIdFromCookie
+    const cookieAllowed =
+      isSuperAdmin || (user !== null && user.churchId === churchIdFromCookie)
+
+    if (cookieAllowed) {
+      // Verify church exists
+      const church = await ChurchService.findById(churchIdFromCookie)
+      if (church) {
+        logger.info('tenant.current_church.from_cookie', { userId, churchId: churchIdFromCookie })
+        return churchIdFromCookie
+      }
+    } else {
+      logger.warn('tenant.current_church.cookie_mismatch', {
+        userId,
+        cookieChurchId: churchIdFromCookie,
+        userChurchId: user?.churchId,
+      })
     }
   }
 
   // If no cookie or invalid, try user's default church
-  if (userId) {
-    const user = await UserService.findById(userId)
-    if (user?.churchId) {
-      logger.info('tenant.current_church.from_user_default', { userId, churchId: user.churchId })
-      return user.churchId
-    }
+  if (user?.churchId) {
+    logger.info('tenant.current_church.from_user_default', { userId, churchId: user.churchId })
+    return user.churchId
   }
 
   return null

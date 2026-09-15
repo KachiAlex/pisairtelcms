@@ -33,6 +33,11 @@ export default async function DashboardLayout({
     redirect('/superadmin')
   }
 
+  // Suspended accounts lose access even with a valid JWT
+  if (user?.isSuspended) {
+    redirect('/auth/login')
+  }
+
   // If user doesn't have a church and is not a superadmin, redirect to register
   if (!user?.churchId && user?.role !== 'SUPER_ADMIN') {
     console.log('Dashboard layout: No churchId and not superadmin, redirecting to register', { userId: user?.id, role: user?.role, churchId: user?.churchId })

@@ -30,6 +30,13 @@ export async function POST(request: Request) {
       )
     }
 
+    if (typeof password !== 'string' || password.length < 8) {
+      return NextResponse.json(
+        { error: 'Password must be at least 8 characters long' },
+        { status: 400 }
+      )
+    }
+
     // Check if user already exists
     const existingUser = await UserService.findByEmail(email)
     if (existingUser) {

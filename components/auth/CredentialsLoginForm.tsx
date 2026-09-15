@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { signIn } from 'next-auth/react'
+import { signIn, getSession } from 'next-auth/react'
 import { useTenantBrand } from '@/lib/branding/useTenantBrand'
 
 function slugifyPreview(name: string) {
@@ -52,11 +52,9 @@ export default function CredentialsLoginForm({ slug, churchName }: CredentialsLo
         return
       }
 
-      if (email === 'admin@pi-cms.com') {
-        window.location.href = '/superadmin'
-      } else {
-        window.location.href = '/dashboard'
-      }
+      const session = await getSession()
+      const role = (session?.user as any)?.role
+      window.location.href = role === 'SUPER_ADMIN' ? '/superadmin' : '/dashboard'
     } catch (err) {
       setError('An error occurred. Please try again.')
       setLoading(false)

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { signIn } from 'next-auth/react'
+import { signIn, getSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useTenantBrand } from '@/lib/branding/useTenantBrand'
@@ -63,13 +63,10 @@ function LoginForm() {
         return
       }
 
-      // Success - redirect superadmin to /superadmin, others to /dashboard
-      // Since superadmin email is known, we can redirect directly
-      if (email === 'admin@pi-cms.com') {
-        window.location.href = '/superadmin'
-      } else {
-        window.location.href = '/dashboard'
-      }
+      // Success - redirect based on actual session role
+      const session = await getSession()
+      const role = (session?.user as any)?.role
+      window.location.href = role === 'SUPER_ADMIN' ? '/superadmin' : '/dashboard'
     } catch (err) {
       setError('An error occurred. Please try again.')
       setLoading(false)

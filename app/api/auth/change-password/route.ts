@@ -39,11 +39,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Current password is incorrect' }, { status: 400 })
     }
 
-    // Hash new password
-    const hashedNewPassword = await bcrypt.hash(newPassword, 12)
-
-    // Update password
-    await UserService.update(userId, { password: hashedNewPassword })
+    // UserService.update hashes the password itself — pass plaintext
+    await UserService.update(userId, { password: newPassword })
 
     return NextResponse.json({ message: 'Password changed successfully' })
   } catch (error) {
