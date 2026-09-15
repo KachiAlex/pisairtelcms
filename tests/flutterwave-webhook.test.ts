@@ -1,35 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/firestore', () => {
-  const store = new Map<string, any>()
-  const collection = vi.fn(() => ({
-    doc: vi.fn((id: string) => {
-      const docStore = store.get(id)
-      return {
-        get: vi.fn(async () => ({ exists: store.has(id) })),
-        set: vi.fn(async (data: any) => {
-          store.set(id, data)
-        }),
-        update: vi.fn(async (data: any) => {
-          store.set(id, { ...(store.get(id) ?? {}), ...data })
-        }),
-      }
-    }),
-  }))
-
-  return {
-    db: {
-      collection,
-    },
-    FieldValue: {
-      serverTimestamp: vi.fn(() => ({ _type: 'serverTimestamp' })),
-    },
-    __test: {
-      reset: () => store.clear(),
-    },
-  }
-})
-
 const mockVerifyPayment = vi.fn()
 vi.mock('@/lib/services/payment-service', () => ({
   PaymentService: {
@@ -37,9 +7,27 @@ vi.mock('@/lib/services/payment-service', () => ({
   },
 }))
 
+const mockWebhookEventCreate = vi.fn()
+vi.mock('@/lib/prisma', () => ({
+  prisma: {
+    webhookEvent: {
+      create: mockWebhookEventCreate,
+    },
+  },
+}))
+
 vi.mock('@/lib/services/giving-service', () => ({
   GivingService: {
     create: vi.fn(async () => ({ id: 'giving_1', createdAt: new Date() })),
+  },
+  ProjectService: {
+    findById: vi.fn(async () => null),
+  },
+}))
+
+vi.mock('@/lib/services/user-service', () => ({
+  UserService: {
+    findById: vi.fn(async () => null),
   },
 }))
 
@@ -79,9 +67,16 @@ vi.mock('@/lib/services/subscription-payment-service', () => ({
 vi.mock('@/lib/services/subscription-service', () => ({
   SubscriptionService: {
     findByChurch: vi.fn(async () => ({ id: 'sub_1' })),
+    update: vi.fn(async () => ({})),
   },
   SubscriptionPlanService: {
     findById: vi.fn(async () => ({ id: 'plan_1' })),
+  },
+}))
+
+vi.mock('@/lib/services/landing-payment-service', () => ({
+  LandingPaymentService: {
+    markPaid: vi.fn(async () => undefined),
   },
 }))
 
@@ -95,116 +90,75 @@ vi.mock('@/lib/logger', () => ({
   },
 }))
 
+const SECRET = 'test_secret_hash'
+process.env.FLUTTERWAVE_SECRET_HASH = SECRET
+
+function webhookRequest(payload: any, signature?: string) {
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  if (signature) headers['verif-hash'] = signature
+  return new Request('http://localhost/api/webhooks/flutterwave', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  })
+}
+
 beforeEach(() => {
-  vi.resetModules()
   vi.clearAllMocks()
   mockVerifyPayment.mockResolvedValue({ success: true, transactionId: 'txn_123', amount: 10, currency: 'NGN' })
   mockGetCurrentChurch.mockResolvedValue(null)
   mockFindGivingConfig.mockResolvedValue(null)
+  mockWebhookEventCreate.mockResolvedValue({})
 })
 
 describe('Flutterwave webhook', () => {
   it('returns 400 when signature is missing', async () => {
     const { POST } = await import('@/app/api/webhooks/flutterwave/route')
 
-    const req = new Request('http://localhost/api/webhooks/flutterwave', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ event: 'charge.completed', data: {} }),
-    })
-
-    const res = await POST(req)
+    const res = await POST(webhookRequest({ event: 'charge.completed', data: {} }))
     expect(res.status).toBe(400)
   })
 
-  it('calls PaymentService.verifyPayment when signature is valid', async () => {
-    const secret = 'test_secret_hash'
-    process.env.FLUTTERWAVE_SECRET_HASH = secret
-
-    const { __test } = await import('@/lib/firestore') as any
-    __test.reset()
-
-    const { PaymentService } = await import('@/lib/services/payment-service') as any
-    ;(PaymentService.verifyPayment as any).mockClear()
-
+  it('returns 401 when signature is invalid', async () => {
     const { POST } = await import('@/app/api/webhooks/flutterwave/route')
+
+    const res = await POST(webhookRequest({ event: 'charge.completed', data: {} }, 'wrong-signature'))
+    expect(res.status).toBe(401)
+  })
+
+  it('calls PaymentService.verifyPayment when signature is valid', async () => {
+    const { POST } = await import('@/app/api/webhooks/flutterwave/route')
+    const { PaymentService } = await import('@/lib/services/payment-service')
 
     const payload = {
       event: 'charge.completed',
-      data: {
-        id: 98765,
-        tx_ref: 'tx_ref_sig_1',
-        status: 'successful',
-        amount: 10,
-        meta: {},
-      },
+      data: { id: 98765, tx_ref: 'tx_ref_sig_1', status: 'successful', amount: 10, meta: {} },
     }
 
-    const req = new Request('http://localhost/api/webhooks/flutterwave', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'verif-hash': secret,
-      },
-      body: JSON.stringify(payload),
-    })
-
-    const res = await POST(req)
+    const res = await POST(webhookRequest(payload, SECRET))
     expect(res.status).toBe(200)
-    const json = await res.json()
-    expect(json.received).toBe(true)
+    expect((await res.json()).received).toBe(true)
 
     expect(PaymentService.verifyPayment).toHaveBeenCalledTimes(1)
     expect(PaymentService.verifyPayment).toHaveBeenCalledWith(98765, undefined)
   })
 
   it('returns duplicate on second delivery for same transaction id', async () => {
-    const secret = 'test_secret_hash'
-    process.env.FLUTTERWAVE_SECRET_HASH = secret
-
-    const { __test } = await import('@/lib/firestore') as any
-    __test.reset()
-
     const { POST } = await import('@/app/api/webhooks/flutterwave/route')
 
     const payload = {
       event: 'charge.completed',
-      data: {
-        id: 12345,
-        tx_ref: 'tx_ref_1',
-        status: 'successful',
-        amount: 10,
-        meta: {},
-      },
+      data: { id: 12345, tx_ref: 'tx_ref_1', status: 'successful', amount: 10, meta: {} },
     }
 
-    const req1 = new Request('http://localhost/api/webhooks/flutterwave', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'verif-hash': secret,
-      },
-      body: JSON.stringify(payload),
-    })
-
-    const res1 = await POST(req1)
+    const res1 = await POST(webhookRequest(payload, SECRET))
     expect(res1.status).toBe(200)
-    const json1 = await res1.json()
-    expect(json1.received).toBe(true)
-    expect(json1.duplicate).toBeUndefined()
+    expect((await res1.json()).duplicate).toBeUndefined()
 
-    const req2 = new Request('http://localhost/api/webhooks/flutterwave', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'verif-hash': secret,
-      },
-      body: JSON.stringify(payload),
-    })
+    // Simulate the unique-constraint hit on the second delivery
+    mockWebhookEventCreate.mockRejectedValueOnce(Object.assign(new Error('Unique constraint'), { code: 'P2002' }))
 
-    const res2 = await POST(req2)
+    const res2 = await POST(webhookRequest(payload, SECRET))
     expect(res2.status).toBe(200)
     const json2 = await res2.json()
     expect(json2.received).toBe(true)

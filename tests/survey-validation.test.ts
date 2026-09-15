@@ -364,8 +364,8 @@ describe('Survey Data Model Validation', () => {
         title: 'Choose color',
         required: true,
         options: [
-          { text: 'Red' },
-          { text: 'Blue' }
+          { id: 'opt1', text: 'Red' },
+          { id: 'opt2', text: 'Blue' }
         ]
       },
       {

@@ -41,10 +41,7 @@ describe('Survey Authorization Properties', () => {
         user: { id: 'test-user', role }
       })
 
-      // Import the surveys page component
-      const { default: SurveysPage } = await import('@/app/(dashboard)/surveys/page')
-      
-      // The page should not redirect and should pass canCreateSurveys=true to SurveysHub
+      // The page passes canCreateSurveys/canManageAllSurveys to SurveysHub based on role
       // We can't easily test the component rendering without a full React testing setup,
       // but we can verify the logic by checking the role-based permissions
       const canCreateSurveys = ['ADMIN', 'SUPER_ADMIN', 'PASTOR', 'BRANCH_ADMIN', 'LEADER'].includes(role)

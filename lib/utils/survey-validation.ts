@@ -99,8 +99,17 @@ export class SurveyValidation {
           errors.push(`${prefix} Rating scale cannot have more than 10 points`)
         }
 
-        if (question.ratingLabels && question.ratingLabels.length !== (question.maxRating - question.minRating + 1)) {
-          errors.push(`${prefix} Number of rating labels must match the rating scale`)
+        // ratingLabels is a { min?, max? } label pair, not a per-point array
+        if (question.ratingLabels) {
+          const labels = question.ratingLabels
+          if (typeof labels !== 'object' || Array.isArray(labels)) {
+            errors.push(`${prefix} Rating labels must be an object with min/max labels`)
+          } else if (
+            (labels.min !== undefined && typeof labels.min !== 'string') ||
+            (labels.max !== undefined && typeof labels.max !== 'string')
+          ) {
+            errors.push(`${prefix} Rating labels must be strings`)
+          }
         }
         break
 
@@ -369,27 +378,31 @@ export class SurveyValidation {
     const errors: string[] = []
 
     switch (question.type) {
-      case 'MULTIPLE_CHOICE':
+      case 'MULTIPLE_CHOICE': {
+        // Options may be stored as plain strings or { id, text, order } objects;
+        // the respond form submits the option text/id as the value
+        const validOptions = (question.options || [])
+          .map((opt: any) => (typeof opt === 'string' ? opt : opt?.id ?? opt?.text))
+          .filter(Boolean)
         if (Array.isArray(value)) {
           // Multiple selection
           if (value.length === 0) {
             errors.push('At least one option must be selected')
           } else {
-            const validOptionIds = question.options?.map((opt: any) => opt.id) || []
-            value.forEach((optionId: string) => {
-              if (!validOptionIds.includes(optionId)) {
+            value.forEach((selected: string) => {
+              if (!validOptions.includes(selected)) {
                 errors.push('Invalid option selected')
               }
             })
           }
         } else {
           // Single selection
-          const validOptionIds = question.options?.map((opt: any) => opt.id) || []
-          if (!validOptionIds.includes(value)) {
+          if (!validOptions.includes(value)) {
             errors.push('Invalid option selected')
           }
         }
         break
+      }
 
       case 'TEXT':
         if (typeof value !== 'string') {
@@ -438,9 +451,9 @@ export class SurveyValidation {
       })),
       settings: {
         ...data.settings,
-        targetBranchIds: data.settings.targetBranchIds?.filter(id => id.trim().length > 0) || [],
-        targetGroupIds: data.settings.targetGroupIds?.filter(id => id.trim().length > 0) || [],
-        targetUserIds: data.settings.targetUserIds?.filter(id => id.trim().length > 0) || []
+        targetBranchIds: data.settings.targetBranchIds?.map(id => id.trim()).filter(id => id.length > 0) || [],
+        targetGroupIds: data.settings.targetGroupIds?.map(id => id.trim()).filter(id => id.length > 0) || [],
+        targetUserIds: data.settings.targetUserIds?.map(id => id.trim()).filter(id => id.length > 0) || []
       }
     }
   }

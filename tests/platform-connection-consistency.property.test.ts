@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fc } from '@fast-check/vitest'
+import fc from 'fast-check'
 import { PlatformConnectionService } from '@/lib/services/platform-connection-service'
 import { StreamingPlatform, PlatformConnectionStatus } from '@/lib/types/streaming'
 
@@ -155,18 +155,19 @@ describe('Platform Connection Consistency Property', () => {
   })
 
   it('should ensure expiration dates are in the future or null', () => {
+    const minDate = new Date()
     fc.assert(
       fc.property(
         fc.oneof(
           fc.constant(null),
-          fc.date({ min: new Date() })
+          fc.date({ min: minDate })
         ),
         (expiresAt) => {
           if (expiresAt === null) {
             expect(expiresAt).toBeNull()
           } else {
-            // Property: Expiration date should be in the future
-            expect(expiresAt.getTime()).toBeGreaterThanOrEqual(Date.now())
+            // Property: Expiration date should be at or after the minimum
+            expect(expiresAt.getTime()).toBeGreaterThanOrEqual(minDate.getTime())
           }
         }
       )

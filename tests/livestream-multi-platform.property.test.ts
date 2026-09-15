@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fc } from '@fast-check/vitest'
+import fc from 'fast-check'
 import { LivestreamService } from '@/lib/services/livestream-service'
 import { StreamingPlatform } from '@/lib/types/streaming'
 
@@ -19,14 +19,14 @@ describe('Livestream Multi-Platform Broadcasting Property', () => {
   it('should broadcast to all selected platforms', () => {
     fc.assert(
       fc.property(
-        fc.array(
+        fc.uniqueArray(
           fc.constantFrom(
             StreamingPlatform.RESTREAM,
             StreamingPlatform.YOUTUBE,
             StreamingPlatform.FACEBOOK,
             StreamingPlatform.INSTAGRAM
           ),
-          { minLength: 1, maxLength: 4, uniqueBy: (p) => p }
+          { minLength: 1, maxLength: 4 }
         ),
         (platforms) => {
           // Property: All platforms in the array should be unique
@@ -54,15 +54,15 @@ describe('Livestream Multi-Platform Broadcasting Property', () => {
     fc.assert(
       fc.property(
         fc.record({
-          platforms: fc.array(
+          platforms: fc.uniqueArray(
             fc.constantFrom(
               StreamingPlatform.RESTREAM,
               StreamingPlatform.YOUTUBE,
               StreamingPlatform.FACEBOOK
             ),
-            { minLength: 1, maxLength: 3, uniqueBy: (p) => p }
+            { minLength: 1, maxLength: 3 }
           ),
-          statuses: fc.array(
+          statuses: fc.uniqueArray(
             fc.constantFrom('active', 'stopped', 'error'),
             { minLength: 1, maxLength: 3 }
           ),
@@ -84,10 +84,15 @@ describe('Livestream Multi-Platform Broadcasting Property', () => {
   it('should handle platform failures without affecting others', () => {
     fc.assert(
       fc.property(
-        fc.record({
-          totalPlatforms: fc.integer({ min: 2, max: 4 }),
-          failedPlatforms: fc.integer({ min: 0, max: 2 }),
-        }),
+        fc
+          .integer({ min: 2, max: 4 })
+          .chain((totalPlatforms) =>
+            fc.record({
+              totalPlatforms: fc.constant(totalPlatforms),
+              // At least one platform must succeed
+              failedPlatforms: fc.integer({ min: 0, max: totalPlatforms - 1 }),
+            })
+          ),
         (data) => {
           // Property: Failed platforms should be less than total platforms
           expect(data.failedPlatforms).toBeLessThanOrEqual(data.totalPlatforms)
@@ -107,14 +112,14 @@ describe('Livestream Multi-Platform Broadcasting Property', () => {
           livestreamId: fc.uuid(),
           title: fc.string({ minLength: 1, maxLength: 100 }),
           description: fc.string({ minLength: 0, maxLength: 500 }),
-          platforms: fc.array(
+          platforms: fc.uniqueArray(
             fc.constantFrom(
               StreamingPlatform.RESTREAM,
               StreamingPlatform.YOUTUBE,
               StreamingPlatform.FACEBOOK,
               StreamingPlatform.INSTAGRAM
             ),
-            { minLength: 1, maxLength: 4, uniqueBy: (p) => p }
+            { minLength: 1, maxLength: 4 }
           ),
         }),
         (livestream) => {
@@ -140,7 +145,7 @@ describe('Livestream Multi-Platform Broadcasting Property', () => {
   it('should track broadcast status for each platform', () => {
     fc.assert(
       fc.property(
-        fc.array(
+        fc.uniqueArray(
           fc.record({
             platform: fc.constantFrom(
               StreamingPlatform.RESTREAM,
@@ -179,14 +184,14 @@ describe('Livestream Multi-Platform Broadcasting Property', () => {
       fc.property(
         fc.record({
           livestreamId: fc.uuid(),
-          platforms: fc.array(
+          platforms: fc.uniqueArray(
             fc.constantFrom(
               StreamingPlatform.RESTREAM,
               StreamingPlatform.YOUTUBE,
               StreamingPlatform.FACEBOOK,
               StreamingPlatform.INSTAGRAM
             ),
-            { minLength: 1, maxLength: 4, uniqueBy: (p) => p }
+            { minLength: 1, maxLength: 4 }
           ),
           startTime: fc.date(),
         }),
@@ -207,7 +212,7 @@ describe('Livestream Multi-Platform Broadcasting Property', () => {
   it('should maintain platform link consistency', () => {
     fc.assert(
       fc.property(
-        fc.array(
+        fc.uniqueArray(
           fc.record({
             platform: fc.constantFrom(
               StreamingPlatform.RESTREAM,
@@ -282,26 +287,24 @@ describe('Livestream Multi-Platform Broadcasting Property', () => {
   it('should ensure no platform is left behind during broadcast', () => {
     fc.assert(
       fc.property(
-        fc.record({
-          selectedPlatforms: fc.array(
+        fc
+          .uniqueArray(
             fc.constantFrom(
               StreamingPlatform.RESTREAM,
               StreamingPlatform.YOUTUBE,
               StreamingPlatform.FACEBOOK,
               StreamingPlatform.INSTAGRAM
             ),
-            { minLength: 1, maxLength: 4, uniqueBy: (p) => p }
+            { minLength: 1, maxLength: 4 }
+          )
+          .chain((selectedPlatforms) =>
+            fc.record({
+              selectedPlatforms: fc.constant(selectedPlatforms),
+              // Active platforms must be a non-empty subset of selected
+              activePlatforms: fc
+                .uniqueArray(fc.constantFrom(...selectedPlatforms), { minLength: 1 })
+            })
           ),
-          activePlatforms: fc.array(
-            fc.constantFrom(
-              StreamingPlatform.RESTREAM,
-              StreamingPlatform.YOUTUBE,
-              StreamingPlatform.FACEBOOK,
-              StreamingPlatform.INSTAGRAM
-            ),
-            { minLength: 1, maxLength: 4, uniqueBy: (p) => p }
-          ),
-        }),
         (data) => {
           // Property: Active platforms should be a subset of selected platforms
           const selectedSet = new Set(data.selectedPlatforms)

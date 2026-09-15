@@ -7,7 +7,7 @@ import {
   StreamingPlatform,
 } from '@/lib/types/streaming'
 
-const prismaMock = {
+const prismaMock = vi.hoisted(() => ({
   livestream: {
     create: vi.fn(),
     findUnique: vi.fn(),
@@ -19,32 +19,32 @@ const prismaMock = {
     update: vi.fn(),
     findUnique: vi.fn(),
   },
-}
+}))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: prismaMock,
 }))
 
-const platformConnectionServiceMock = {
+const platformConnectionServiceMock = vi.hoisted(() => ({
   getConnection: vi.fn(),
   getConnections: vi.fn(),
-}
+}))
 
 vi.mock('@/lib/services/platform-connection-service', () => ({
   PlatformConnectionService: platformConnectionServiceMock,
 }))
 
-const platformClientMock = {
+const platformClientMock = vi.hoisted(() => ({
   createLivestream: vi.fn(),
   startBroadcasting: vi.fn(),
   stopBroadcasting: vi.fn(),
   deleteLivestream: vi.fn(),
   updateLivestream: vi.fn(),
-}
+}))
 
-const platformClientFactoryMock = {
+const platformClientFactoryMock = vi.hoisted(() => ({
   getClient: vi.fn(),
-}
+}))
 
 vi.mock('@/lib/clients/platform-client-factory', () => ({
   PlatformClientFactory: platformClientFactoryMock,

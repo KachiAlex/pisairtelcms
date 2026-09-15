@@ -202,11 +202,11 @@ describe('Survey Target Audience Permission Enforcement', () => {
           churchId: 'church-1'
         },
         validTargets: [
-          { type: 'GROUP', groupIds: ['group-1'], branchIds: [], userIds: [] }
+          { targetAudienceType: 'GROUP', targetGroupIds: ['group-1'], targetBranchIds: [], targetUserIds: [] }
         ],
         invalidTargets: [
-          { type: 'ALL', groupIds: [], branchIds: [], userIds: [] },
-          { type: 'GROUP', groupIds: ['group-2'], branchIds: [], userIds: [] }
+          { targetAudienceType: 'ALL', targetGroupIds: [], targetBranchIds: [], targetUserIds: [] },
+          { targetAudienceType: 'GROUP', targetGroupIds: ['group-2'], targetBranchIds: [], targetUserIds: [] }
         ]
       },
       {
@@ -217,12 +217,12 @@ describe('Survey Target Audience Permission Enforcement', () => {
           churchId: 'church-1'
         },
         validTargets: [
-          { type: 'GROUP', groupIds: ['group-1', 'group-2'], branchIds: [], userIds: [] },
-          { type: 'BRANCH', groupIds: [], branchIds: ['branch-1'], userIds: [] }
+          { targetAudienceType: 'GROUP', targetGroupIds: ['group-1', 'group-2'], targetBranchIds: [], targetUserIds: [] },
+          { targetAudienceType: 'BRANCH', targetGroupIds: [], targetBranchIds: ['branch-1'], targetUserIds: [] }
         ],
         invalidTargets: [
-          { type: 'GROUP', groupIds: ['group-4'], branchIds: [], userIds: [] },
-          { type: 'BRANCH', groupIds: [], branchIds: ['branch-3'], userIds: [] }
+          { targetAudienceType: 'GROUP', targetGroupIds: ['group-4'], targetBranchIds: [], targetUserIds: [] },
+          { targetAudienceType: 'BRANCH', targetGroupIds: [], targetBranchIds: ['branch-3'], targetUserIds: [] }
         ]
       },
       {
@@ -231,9 +231,9 @@ describe('Survey Target Audience Permission Enforcement', () => {
           churchId: 'church-1'
         },
         validTargets: [
-          { type: 'ALL', groupIds: [], branchIds: [], userIds: [] },
-          { type: 'GROUP', groupIds: ['group-1', 'group-2'], branchIds: [], userIds: [] },
-          { type: 'BRANCH', groupIds: [], branchIds: ['branch-1', 'branch-2'], userIds: [] }
+          { targetAudienceType: 'ALL', targetGroupIds: [], targetBranchIds: [], targetUserIds: [] },
+          { targetAudienceType: 'GROUP', targetGroupIds: ['group-1', 'group-2'], targetBranchIds: [], targetUserIds: [] },
+          { targetAudienceType: 'BRANCH', targetGroupIds: [], targetBranchIds: ['branch-1', 'branch-2'], targetUserIds: [] }
         ],
         invalidTargets: [] // Pastors can target anyone
       }

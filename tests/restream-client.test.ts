@@ -2,265 +2,140 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { RestreamClient } from '@/lib/clients/restream-client'
 import { StreamingPlatform } from '@/lib/types/streaming'
 
+const okResponse = (body: any) =>
+  ({
+    ok: true,
+    json: vi.fn(async () => body),
+  }) as unknown as Response
+
+const errResponse = (statusText = 'Not Found') =>
+  ({
+    ok: false,
+    statusText,
+    json: vi.fn(async () => ({})),
+  }) as unknown as Response
+
 describe('RestreamClient', () => {
-  const accessToken = 'test-access-token'
   let client: RestreamClient
+  const credentials = { accessToken: 'test-access-token' }
 
   beforeEach(() => {
-    client = new RestreamClient(accessToken)
-    vi.clearAllMocks()
+    client = new RestreamClient()
+    client['credentials'] = credentials
+    vi.stubGlobal('fetch', vi.fn(async () => okResponse({ id: 'ch_1' })))
   })
 
-  describe('constructor', () => {
-    it('should initialize with access token', () => {
-      expect(client).toBeDefined()
+  describe('platform', () => {
+    it('should be RESTREAM', () => {
       expect(client.platform).toBe(StreamingPlatform.RESTREAM)
     })
+  })
 
-    it('should throw error if access token is empty', () => {
-      expect(() => new RestreamClient('')).toThrow()
+  describe('authenticate', () => {
+    it('should throw when access token is missing', async () => {
+      await expect(client.authenticate({})).rejects.toThrow('Restream access token is required')
+    })
+
+    it('should verify the token against the Restream API', async () => {
+      await client.authenticate(credentials)
+      expect(fetch).toHaveBeenCalledWith(
+        'https://api.restream.io/v2/user',
+        expect.objectContaining({ method: 'GET' })
+      )
     })
   })
 
   describe('createLivestream', () => {
-    it('should create a livestream with valid parameters', async () => {
-      const params = {
-        title: 'Test Livestream',
-        description: 'Test Description',
-        platforms: ['youtube', 'facebook'],
-      }
+    it('should create a channel and return platformId + url', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => okResponse({ id: 'ch_42', url: 'https://restream.io/ch/42' })))
 
-      const result = await client.createLivestream(params)
+      const result = await client.createLivestream({ title: 'Sunday Service', description: 'Live' })
 
-      expect(result).toHaveProperty('id')
-      expect(result).toHaveProperty('title')
-      expect(result.title).toBe(params.title)
+      expect(result.platformId).toBe('ch_42')
+      expect(result.url).toBe('https://restream.io/ch/42')
+      expect(fetch).toHaveBeenCalledWith(
+        'https://api.restream.io/v2/channels',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ title: 'Sunday Service', description: 'Live', thumbnail: undefined }),
+        })
+      )
     })
 
-    it('should include all required fields in request', async () => {
-      const params = {
-        title: 'Test Livestream',
-        description: 'Test Description',
-        platforms: ['youtube'],
-      }
-
-      const result = await client.createLivestream(params)
-
-      expect(result.title).toBe(params.title)
-      expect(result.description).toBe(params.description)
+    it('should fall back to a derived url when none is returned', async () => {
+      const result = await client.createLivestream({ title: 'Test' })
+      expect(result.url).toBe('https://restream.io/channel/ch_1')
     })
 
-    it('should handle multiple platforms', async () => {
-      const params = {
-        title: 'Multi-Platform Stream',
-        description: 'Broadcasting to multiple platforms',
-        platforms: ['youtube', 'facebook', 'instagram'],
-      }
-
-      const result = await client.createLivestream(params)
-
-      expect(result).toBeDefined()
-      expect(result.platforms).toContain('youtube')
-    })
-
-    it('should throw error if title is missing', async () => {
-      const params = {
-        title: '',
-        description: 'Test Description',
-        platforms: ['youtube'],
-      }
-
-      await expect(client.createLivestream(params)).rejects.toThrow()
-    })
-  })
-
-  describe('startLivestream', () => {
-    it('should start a livestream', async () => {
-      const livestreamId = 'test-livestream-123'
-
-      const result = await client.startLivestream(livestreamId)
-
-      expect(result).toHaveProperty('status')
-      expect(result.status).toBe('active')
-    })
-
-    it('should throw error if livestream ID is invalid', async () => {
-      await expect(client.startLivestream('')).rejects.toThrow()
-    })
-
-    it('should return active status after starting', async () => {
-      const livestreamId = 'test-livestream-456'
-
-      const result = await client.startLivestream(livestreamId)
-
-      expect(result.status).toBe('active')
-    })
-  })
-
-  describe('stopLivestream', () => {
-    it('should stop a livestream', async () => {
-      const livestreamId = 'test-livestream-123'
-
-      const result = await client.stopLivestream(livestreamId)
-
-      expect(result).toHaveProperty('status')
-      expect(result.status).toBe('stopped')
-    })
-
-    it('should throw error if livestream ID is invalid', async () => {
-      await expect(client.stopLivestream('')).rejects.toThrow()
-    })
-
-    it('should return stopped status after stopping', async () => {
-      const livestreamId = 'test-livestream-789'
-
-      const result = await client.stopLivestream(livestreamId)
-
-      expect(result.status).toBe('stopped')
+    it('should propagate API errors', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => errResponse('Bad Request')))
+      await expect(client.createLivestream({ title: 'x' })).rejects.toThrow('API request failed')
     })
   })
 
   describe('updateLivestream', () => {
-    it('should update livestream details', async () => {
-      const livestreamId = 'test-livestream-123'
-      const updates = {
-        title: 'Updated Title',
-        description: 'Updated Description',
-      }
+    it('should PATCH the channel', async () => {
+      await client.updateLivestream('ch_9', { title: 'New title' })
+      expect(fetch).toHaveBeenCalledWith(
+        'https://api.restream.io/v2/channels/ch_9',
+        expect.objectContaining({ method: 'PATCH' })
+      )
+    })
+  })
 
-      const result = await client.updateLivestream(livestreamId, updates)
-
-      expect(result.title).toBe(updates.title)
-      expect(result.description).toBe(updates.description)
+  describe('startBroadcasting / stopBroadcasting', () => {
+    it('should POST to the start endpoint', async () => {
+      await client.startBroadcasting('ch_9')
+      expect(fetch).toHaveBeenCalledWith(
+        'https://api.restream.io/v2/channels/ch_9/start',
+        expect.objectContaining({ method: 'POST' })
+      )
     })
 
-    it('should preserve existing fields when updating', async () => {
-      const livestreamId = 'test-livestream-123'
-      const updates = {
-        title: 'Updated Title',
-      }
-
-      const result = await client.updateLivestream(livestreamId, updates)
-
-      expect(result.title).toBe(updates.title)
+    it('should POST to the stop endpoint', async () => {
+      await client.stopBroadcasting('ch_9')
+      expect(fetch).toHaveBeenCalledWith(
+        'https://api.restream.io/v2/channels/ch_9/stop',
+        expect.objectContaining({ method: 'POST' })
+      )
     })
 
-    it('should throw error if livestream ID is invalid', async () => {
-      await expect(
-        client.updateLivestream('', { title: 'New Title' })
-      ).rejects.toThrow()
+    it('should propagate start failures', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => errResponse()))
+      await expect(client.startBroadcasting('ch_9')).rejects.toThrow()
     })
   })
 
   describe('deleteLivestream', () => {
-    it('should delete a livestream', async () => {
-      const livestreamId = 'test-livestream-123'
-
-      await expect(client.deleteLivestream(livestreamId)).resolves.not.toThrow()
-    })
-
-    it('should throw error if livestream ID is invalid', async () => {
-      await expect(client.deleteLivestream('')).rejects.toThrow()
+    it('should DELETE the channel', async () => {
+      await client.deleteLivestream('ch_9')
+      expect(fetch).toHaveBeenCalledWith(
+        'https://api.restream.io/v2/channels/ch_9',
+        expect.objectContaining({ method: 'DELETE' })
+      )
     })
   })
 
-  describe('getLivestream', () => {
-    it('should retrieve livestream details', async () => {
-      const livestreamId = 'test-livestream-123'
-
-      const result = await client.getLivestream(livestreamId)
-
-      expect(result).toHaveProperty('id')
-      expect(result.id).toBe(livestreamId)
+  describe('getDestinations', () => {
+    it('should return the destination list', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () =>
+        okResponse({ data: [{ id: 'd1', name: 'YouTube', platform: 'youtube' }] })
+      ))
+      const dests = await client.getDestinations()
+      expect(dests).toEqual([{ id: 'd1', name: 'YouTube', platform: 'youtube' }])
     })
 
-    it('should throw error if livestream ID is invalid', async () => {
-      await expect(client.getLivestream('')).rejects.toThrow()
-    })
-
-    it('should return all livestream properties', async () => {
-      const livestreamId = 'test-livestream-123'
-
-      const result = await client.getLivestream(livestreamId)
-
-      expect(result).toHaveProperty('title')
-      expect(result).toHaveProperty('description')
-      expect(result).toHaveProperty('status')
+    it('should return an empty array when the API returns no data', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => okResponse({})))
+      expect(await client.getDestinations()).toEqual([])
     })
   })
 
-  describe('listDestinations', () => {
-    it('should list available destinations', async () => {
-      const result = await client.listDestinations()
-
-      expect(Array.isArray(result)).toBe(true)
-      expect(result.length).toBeGreaterThan(0)
-    })
-
-    it('should return destination objects with required fields', async () => {
-      const result = await client.listDestinations()
-
-      result.forEach((destination) => {
-        expect(destination).toHaveProperty('id')
-        expect(destination).toHaveProperty('name')
-      })
-    })
-  })
-
-  describe('getDestinationDetails', () => {
-    it('should retrieve destination details', async () => {
-      const destinationId = 'youtube'
-
-      const result = await client.getDestinationDetails(destinationId)
-
-      expect(result).toHaveProperty('id')
-      expect(result.id).toBe(destinationId)
-    })
-
-    it('should throw error if destination ID is invalid', async () => {
-      await expect(client.getDestinationDetails('')).rejects.toThrow()
-    })
-  })
-
-  describe('error handling', () => {
-    it('should handle API errors gracefully', async () => {
-      const livestreamId = 'invalid-id'
-
-      await expect(client.getLivestream(livestreamId)).rejects.toThrow()
-    })
-
-    it('should include error details in thrown exceptions', async () => {
-      try {
-        await client.getLivestream('invalid-id')
-      } catch (error: any) {
-        expect(error.message).toBeDefined()
-      }
-    })
-
-    it('should handle network errors', async () => {
-      const livestreamId = 'test-livestream-123'
-
-      // This test verifies error handling for network issues
-      try {
-        await client.getLivestream(livestreamId)
-      } catch (error) {
-        expect(error).toBeDefined()
-      }
-    })
-  })
-
-  describe('authentication', () => {
-    it('should use provided access token for requests', () => {
-      const token = 'custom-access-token'
-      const customClient = new RestreamClient(token)
-
-      expect(customClient).toBeDefined()
-    })
-
-    it('should throw error if token is expired', async () => {
-      const expiredClient = new RestreamClient('expired-token')
-
-      await expect(expiredClient.getLivestream('test-id')).rejects.toThrow()
+  describe('getChannelDetails', () => {
+    it('should return the channel payload', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => okResponse({ id: 'ch_7', title: 'My channel' })))
+      const details = await client.getChannelDetails('ch_7')
+      expect(details.id).toBe('ch_7')
     })
   })
 })
