@@ -27,6 +27,10 @@ export type MeetingSeries = {
     calendarEventId?: string
     meetUrl?: string
   }
+  jitsi?: {
+    roomName?: string
+    joinUrl?: string
+  }
   createdBy: string
   createdAt: Date
   updatedAt: Date
@@ -43,6 +47,7 @@ export type MeetingOccurrence = {
   endAt?: Date
   timezone?: string
   google?: MeetingSeries['google']
+  jitsi?: MeetingSeries['jitsi']
 }
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000
@@ -130,6 +135,7 @@ function expandWeekly(series: MeetingSeries, rangeStart: Date, rangeEnd: Date): 
           endAt: end,
           timezone: series.timezone,
           google: series.google,
+          jitsi: series.jitsi,
         })
       }
     }
@@ -188,6 +194,7 @@ function expandMonthly(series: MeetingSeries, rangeStart: Date, rangeEnd: Date):
         endAt: end,
         timezone: series.timezone,
         google: series.google,
+        jitsi: series.jitsi,
       })
     }
 
@@ -218,6 +225,7 @@ export function expandMeetingSeries(params: {
         endAt: series.endAt,
         timezone: series.timezone,
         google: series.google,
+        jitsi: series.jitsi,
       },
     ]
   }
@@ -294,6 +302,20 @@ export class MeetingService {
     return this.mapRecord(record)
   }
 
+  static async updateJitsi(params: {
+    meetingId: string
+    jitsi: NonNullable<MeetingSeries['jitsi']>
+  }): Promise<MeetingSeries> {
+    const record = await prisma.meeting.update({
+      where: { id: params.meetingId },
+      data: {
+        jitsi: params.jitsi as any,
+      },
+    })
+
+    return this.mapRecord(record)
+  }
+
   static async updateGoogle(params: {
     meetingId: string
     google: NonNullable<MeetingSeries['google']>
@@ -347,6 +369,7 @@ export class MeetingService {
           }
         : undefined,
       google: (record.google as any) ?? undefined,
+      jitsi: (record.jitsi as any) ?? undefined,
       createdBy: record.createdBy,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,

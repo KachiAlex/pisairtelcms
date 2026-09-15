@@ -6,6 +6,7 @@ import { MeetingService, expandMeetingSeries, MeetingRecurrence } from '@/lib/se
 import { UserService } from '@/lib/services/user-service'
 import { ChurchGoogleService } from '@/lib/services/church-google-service'
 import { createCalendarEventWithMeet } from '@/lib/services/google-calendar-service'
+import { JitsiService } from '@/lib/services/jitsi-service'
 
 function parseDate(v: any): Date | null {
   if (!v) return null
@@ -103,7 +104,12 @@ export async function POST(request: Request) {
     }
   }
 
-  const created = await MeetingService.create({
+  const platform = String(body?.platform || 'JITSI').toUpperCase()
+  if (!['JITSI', 'GOOGLE_MEET', 'BOTH'].includes(platform)) {
+    return NextResponse.json({ error: 'Invalid platform. Use JITSI, GOOGLE_MEET, or BOTH' }, { status: 400 })
+  }
+
+  let created = await MeetingService.create({
     churchId: church.id,
     createdBy: userId,
     branchId,
@@ -115,8 +121,16 @@ export async function POST(request: Request) {
     recurrence,
   })
 
+  // Jitsi room (built-in, no external dependency)
+  if (platform === 'JITSI' || platform === 'BOTH') {
+    created = await MeetingService.updateJitsi({
+      meetingId: created.id,
+      jitsi: JitsiService.createRoom(created.id),
+    })
+  }
+
   // Google Calendar + Meet integration (optional)
-  try {
+  if (platform === 'GOOGLE_MEET' || platform === 'BOTH') try {
     const client = await ChurchGoogleService.getAuthorizedCalendarClient(church.id)
     if (client) {
       const calendarId = client.tokens.calendarId || 'primary'

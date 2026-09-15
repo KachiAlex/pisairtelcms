@@ -32,6 +32,10 @@ type MeetingOccurrence = {
     calendarId?: string
     meetUrl?: string
   }
+  jitsi?: {
+    roomName?: string
+    joinUrl?: string
+  }
 }
 
 function weekdayLabel(d: number): string {
@@ -84,6 +88,7 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
     recurrenceMonthDay: new Date().getDate(),
     recurrenceUntil: '',
     customMode: 'WEEKLY' as 'WEEKLY' | 'MONTHLY',
+    platform: 'JITSI' as 'JITSI' | 'GOOGLE_MEET' | 'BOTH',
   })
 
   const canChooseBranchScope = useMemo(() => {
@@ -230,6 +235,7 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
           timezone: form.timezone || undefined,
           branchId,
           recurrence,
+          platform: form.platform,
         }),
       })
 
@@ -455,16 +461,23 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
                       {o.branchId ? ` • Branch: ${o.branchId}` : ' • All branches'}
                     </div>
                     {o.description && <div className="text-sm text-gray-700 mt-2">{o.description}</div>}
-                  {o.google?.meetUrl && (
+                  {o.jitsi?.joinUrl && (
                     <div className="text-sm mt-2">
+                      <a className="text-primary-700 hover:underline font-semibold" href={o.jitsi.joinUrl} target="_blank" rel="noreferrer">
+                        → Join Video Meeting
+                      </a>
+                    </div>
+                  )}
+                  {o.google?.meetUrl && (
+                    <div className="text-sm mt-1">
                       <a className="text-primary-700 hover:underline font-semibold" href={o.google.meetUrl} target="_blank" rel="noreferrer">
                         → Join Google Meet
                       </a>
                     </div>
                   )}
-                  {!o.google?.meetUrl && canManageMeetings && (
+                  {!o.jitsi?.joinUrl && !o.google?.meetUrl && canManageMeetings && (
                     <div className="text-sm mt-2 text-gray-500">
-                      No Google Meet link (connect Google Calendar to auto-generate)
+                      No video link on this meeting
                     </div>
                   )}
                     {recurrenceSummary(o)}
@@ -538,6 +551,25 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
                   onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
                 />
               </div>
+
+              {!editingMeetingId && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Video platform</label>
+                  <select
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    value={form.platform}
+                    onChange={(e) => setForm((p) => ({ ...p, platform: e.target.value as 'JITSI' | 'GOOGLE_MEET' | 'BOTH' }))}
+                  >
+                    <option value="JITSI">Built-in video (Jitsi) — unlimited duration</option>
+                    <option value="GOOGLE_MEET" disabled={!googleStatus?.connected}>
+                      Google Meet{googleStatus?.connected ? '' : ' (connect Google first)'}
+                    </option>
+                    <option value="BOTH" disabled={!googleStatus?.connected}>
+                      Both{googleStatus?.connected ? '' : ' (connect Google first)'}
+                    </option>
+                  </select>
+                </div>
+              )}
 
               <div className="grid md:grid-cols-2 gap-3">
                 <div>

@@ -2182,6 +2182,7 @@ model Meeting {
   timezone   String?
   recurrence Json? // { frequency, interval, byWeekday, byMonthDay, until }
   google     Json? // { calendarId, calendarEventId, meetUrl }
+  jitsi      Json? // { roomName, joinUrl }
 
   @@index([churchId])
   @@index([createdBy])
