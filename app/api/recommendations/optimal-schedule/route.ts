@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     if (!session?.user?.id)
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    // In production, fetch from Firestore cache
+    // In production, fetch from Postgres
     return NextResponse.json({ success: true, schedules: [] })
   } catch (error) {
     console.error('GET /api/recommendations/optimal-schedule failed:', error)

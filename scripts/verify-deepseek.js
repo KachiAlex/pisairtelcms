@@ -32,7 +32,7 @@ async function verifyDeepSeek() {
       console.log(`   AI configured: ${healthData.services.ai.configured}`)
       console.log(`   Provider: ${healthData.services.ai.provider}`)
       console.log(`   Model: ${healthData.services.ai.model || 'N/A'}`)
-      console.log(`   Firebase: ${healthData.services.firebase.configured ? '✅' : '❌'}`)
+      console.log(`   Database: ${healthData.services.database?.configured ? '✅' : '❌'}`)
       console.log(`   Auth: ${healthData.services.auth.configured ? '✅' : '❌'}\n`)
       
       if (!healthData.services.ai.configured) {

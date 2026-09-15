@@ -29,7 +29,8 @@
     "mobile",
     "tests",
     "__tests__",
-    "scripts/**/*.bak"
+    "scripts/**/*.bak",
+    "scripts/legacy-firestore"
   ]
 }
 

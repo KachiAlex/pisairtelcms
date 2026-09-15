@@ -57,7 +57,7 @@ async function ensureChurchRecord(churchId: string): Promise<string | null> {
   try {
     remoteChurch = await ChurchService.findById(churchId)
   } catch (error) {
-    console.error('Failed to fetch church from Firestore, falling back to placeholder:', error)
+    console.error('Failed to fetch church, falling back to placeholder:', error)
   }
 
   const fallbackName = `Church ${churchId.slice(-6)}`

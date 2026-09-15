@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     if (!session?.user?.id)
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    // In production, fetch from Firestore
+    // In production, fetch from Postgres
     return NextResponse.json({ success: true, recommendations: {} })
   } catch (error) {
     console.error('GET /api/recommendations/engagement failed:', error)

@@ -1266,7 +1266,7 @@ export default function DigitalSchool() {
         setDraftMessage(null)
         const message =
           error instanceof Error && /requires an index/i.test(error.message)
-            ? 'Unable to load draft. Please create the suggested Firestore index and try again.'
+            ? 'Unable to load draft due to a missing database index. Please contact support.'
             : error instanceof Error
               ? `Unable to load draft: ${error.message}`
               : 'Unable to load draft right now.'

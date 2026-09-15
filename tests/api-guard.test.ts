@@ -11,14 +11,6 @@ vi.mock('@/lib/auth-options', () => ({
   authOptions: {},
 }))
 
-vi.mock('@/lib/firestore', () => ({
-  db: {},
-  FieldValue: {
-    serverTimestamp: vi.fn(() => ({ _type: 'serverTimestamp' })),
-  },
-  toDate: (value: any) => (value instanceof Date ? value : new Date(value ?? Date.now())),
-}))
-
 const mockGetCurrentChurch = vi.fn()
 vi.mock('@/lib/church-context', () => ({
   getCurrentChurch: mockGetCurrentChurch,

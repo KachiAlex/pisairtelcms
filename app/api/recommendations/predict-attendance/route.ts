@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     if (!session?.user?.id)
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    // In production, fetch from Firestore
+    // In production, fetch from Postgres
     // For now, return empty array
     return NextResponse.json({ success: true, predictions: [] })
   } catch (error) {

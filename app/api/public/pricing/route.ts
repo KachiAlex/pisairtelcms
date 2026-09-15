@@ -59,7 +59,7 @@ export async function GET() {
     try {
       plans = await SubscriptionPlanService.findAll()
     } catch (planError) {
-      console.error('[public.pricing] Failed to fetch plans from Firestore, using fallback', planError)
+      console.error('[public.pricing] Failed to fetch plans, using fallback', planError)
       // Fallback to licensing plans configuration
       plans = LICENSING_PLANS.map((config) => ({
         id: config.id,
@@ -79,7 +79,7 @@ export async function GET() {
     try {
       promos = await SubscriptionPricingService.listPromos()
     } catch (promoError) {
-      console.error('[public.pricing] Failed to fetch promos from Firestore', promoError)
+      console.error('[public.pricing] Failed to fetch promos', promoError)
       // Continue without promos if they fail to load
       promos = []
     }

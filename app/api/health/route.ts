@@ -26,8 +26,8 @@ export async function GET() {
           provider: provider,
           model: aiConfigured ? model : undefined,
         },
-        firebase: {
-          configured: !!(process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_SERVICE_ACCOUNT),
+        database: {
+          configured: !!process.env.DATABASE_URL,
         },
         auth: {
           configured: !!(process.env.NEXTAUTH_SECRET && process.env.NEXTAUTH_URL),

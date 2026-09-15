@@ -49,7 +49,7 @@ export async function POST(request: Request) {
       )
     }
 
-    // Upload to Firebase Storage
+    // Upload to local storage
     try {
       const { StorageService } = await import('@/lib/services/storage-service')
       const { UserService } = await import('@/lib/services/user-service')
