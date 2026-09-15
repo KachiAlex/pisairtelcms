@@ -8,6 +8,8 @@ import {
 } from '@/lib/types/streaming'
 import { PlatformConnectionService } from './platform-connection-service'
 import { PlatformClientFactory } from '@/lib/clients/platform-client-factory'
+import { JitsiService } from './jitsi-service'
+import crypto from 'crypto'
 
 export type ExternalLivestreamConfig = {
   id: string
@@ -115,8 +117,10 @@ export class LivestreamService {
 
       const platformCreatePayload = await Promise.all(
         data.platforms.map(async (p) => {
-          const connection = await PlatformConnectionService.getConnection(churchId, p.platform)
-          const connected = connection?.status === PlatformConnectionStatus.CONNECTED
+          // Built-in Jitsi broadcast needs no external connection
+          const connected = p.platform === StreamingPlatform.JITSI
+            ? JitsiService.isConfigured()
+            : (await PlatformConnectionService.getConnection(churchId, p.platform))?.status === PlatformConnectionStatus.CONNECTED
 
           return {
             platform: p.platform,
@@ -461,6 +465,31 @@ export class LivestreamService {
     platform: any,
     baseData: { title: string; description?: string; thumbnail?: string; startAt: Date }
   ): Promise<void> {
+    // Built-in Jitsi broadcast: stage room + WHIP/HLS stream credentials.
+    // platformId = MediaMTX stream path; streamKey authorizes publishing.
+    if (platform.platform === StreamingPlatform.JITSI) {
+      const streamPath = `lv-${crypto.randomBytes(8).toString('hex')}`
+      const streamKey = crypto.randomBytes(24).toString('hex')
+      const roomName = JitsiService.generateRoomName(livestream.id)
+
+      await prisma.livestreamPlatform.update({
+        where: { id: platform.id },
+        data: {
+          platformId: streamPath,
+          url: `/livestreams/${livestream.id}/watch`,
+          status: LivestreamPlatformStatus.PENDING,
+          error: null,
+          settings: {
+            ...(platform.settings || {}),
+            roomName,
+            streamPath,
+            streamKey,
+          },
+        },
+      })
+      return
+    }
+
     try {
       const client = await PlatformClientFactory.getClient(livestream.churchId, platform.platform)
       const response = await client.createLivestream({
@@ -492,6 +521,9 @@ export class LivestreamService {
   }
 
   private static async startPlatformBroadcast(livestream: any, platform: any): Promise<void> {
+    // Jitsi broadcast goes LIVE when the studio actually publishes (WHIP)
+    if (platform.platform === StreamingPlatform.JITSI) return
+
     if (!platform.platformId) {
       await prisma.livestreamPlatform.update({
         where: { id: platform.id },
@@ -525,6 +557,14 @@ export class LivestreamService {
   }
 
   private static async stopPlatformBroadcast(livestream: any, platform: any): Promise<void> {
+    if (platform.platform === StreamingPlatform.JITSI) {
+      await prisma.livestreamPlatform.update({
+        where: { id: platform.id },
+        data: { status: LivestreamPlatformStatus.ENDED },
+      })
+      return
+    }
+
     if (!platform.platformId) {
       return
     }
@@ -551,6 +591,8 @@ export class LivestreamService {
   }
 
   private static async deletePlatformLivestream(livestream: any, platform: any): Promise<void> {
+    if (platform.platform === StreamingPlatform.JITSI) return
+
     if (!platform.platformId) {
       return
     }
@@ -568,7 +610,7 @@ export class LivestreamService {
     platform: any,
     data: { title?: string; description?: string; thumbnail?: string }
   ): Promise<void> {
-    if (!platform.platformId) {
+    if (platform.platform === StreamingPlatform.JITSI || !platform.platformId) {
       return
     }
 

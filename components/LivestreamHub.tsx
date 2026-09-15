@@ -299,7 +299,14 @@ export default function LivestreamHub({ isAdmin }: { isAdmin: boolean }) {
                 <div className="text-sm text-gray-500 mt-2">
                   {displayedStartAtText ? `Starts ${displayedStartAtText}` : 'Start time TBA'}
                 </div>
-                {displayedPlatform?.url && (
+                {displayedPlatform?.url && displayedPlatform.platform === StreamingPlatform.JITSI ? (
+                  <a
+                    href={displayedPlatform.url}
+                    className="inline-flex items-center gap-2 text-primary-600 hover:underline mt-3 text-sm font-medium"
+                  >
+                    Watch here — built-in broadcast
+                  </a>
+                ) : displayedPlatform?.url && (
                   <a
                     href={displayedPlatform.url}
                     target="_blank"
@@ -308,6 +315,14 @@ export default function LivestreamHub({ isAdmin }: { isAdmin: boolean }) {
                   >
                     Open on {PLATFORM_META[displayedPlatform.platform].label}
                     <span aria-hidden="true">↗</span>
+                  </a>
+                )}
+                {isAdmin && activeLivestream?.platforms?.some((p) => p.platform === StreamingPlatform.JITSI) && (
+                  <a
+                    href={`/livestreams/${activeLivestream.id}/broadcast`}
+                    className="inline-flex items-center gap-2 mt-3 ml-4 px-3 py-1.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700"
+                  >
+                    ● Broadcast Studio
                   </a>
                 )}
               </div>

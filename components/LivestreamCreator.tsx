@@ -56,6 +56,7 @@ export default function LivestreamCreator({ onSuccess, onError }: LivestreamCrea
   })
 
   const platforms = [
+    { id: StreamingPlatform.JITSI, label: 'Built-in (Jitsi)', icon: '🛰️' },
     { id: StreamingPlatform.RESTREAM, label: 'Restream', icon: '🔄' },
     { id: StreamingPlatform.YOUTUBE, label: 'YouTube', icon: '▶️' },
     { id: StreamingPlatform.FACEBOOK, label: 'Facebook', icon: 'f' },
