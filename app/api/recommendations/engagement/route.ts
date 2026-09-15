@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
+import { getCurrentChurchId } from '@/lib/church-context'
 import { RecommendationService } from '@/lib/services/recommendation-service'
 
 /**
@@ -45,8 +46,12 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    const churchId = await getCurrentChurchId(session.user.id)
+    if (!churchId)
+      return NextResponse.json({ error: 'No church context' }, { status: 400 })
+
     const recommendationsMap = await RecommendationService.generateMemberEngagementRecommendations(
-      session.user.churchId,
+      churchId,
       memberData
     )
 

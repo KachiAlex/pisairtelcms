@@ -20,7 +20,7 @@ export async function POST(
     const params = await context.params
     const { id } = params
 
-    await NotificationService.markAsRead(id)
+    await NotificationService.markAsRead(id, (session.user as any).id)
 
     return NextResponse.json({
       success: true,
@@ -52,7 +52,7 @@ export async function DELETE(
     const params = await context.params
     const { id } = params
 
-    await NotificationService.deleteNotification(id)
+    await NotificationService.deleteNotification(id, (session.user as any).id)
 
     return NextResponse.json({
       success: true,

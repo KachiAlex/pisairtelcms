@@ -1,6 +1,5 @@
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
+import type { Prisma } from '@prisma/client'
 
 export interface GivingConfig {
   id: string
@@ -40,59 +39,41 @@ export interface GivingConfig {
   updatedAt: Date
 }
 
+const toConfig = (record: any): GivingConfig => ({
+  ...record,
+  paymentMethods: (record.paymentMethods as GivingConfig['paymentMethods']) ?? {},
+  defaultMethod: record.defaultMethod ?? undefined,
+})
+
 export class GivingConfigService {
   static async findByChurch(churchId: string): Promise<GivingConfig | null> {
-    const snapshot = await db.collection(COLLECTIONS.givingConfig)
-      .where('churchId', '==', churchId)
-      .limit(1)
-      .get()
-
-    if (snapshot.empty) return null
-
-    const doc = snapshot.docs[0]
-    const data = doc.data()
-    return {
-      id: doc.id,
-      ...data,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as GivingConfig
+    const record = await prisma.givingConfig.findUnique({
+      where: { churchId },
+    })
+    return record ? toConfig(record) : null
   }
 
   static async create(data: Omit<GivingConfig, 'id' | 'createdAt' | 'updatedAt'>): Promise<GivingConfig> {
-    const configData = {
-      ...data,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    const docRef = db.collection(COLLECTIONS.givingConfig).doc()
-    await docRef.set(configData)
-
-    const created = await docRef.get()
-    const createdData = created.data()!
-    return {
-      id: created.id,
-      ...createdData,
-      createdAt: toDate(createdData.createdAt),
-      updatedAt: toDate(createdData.updatedAt),
-    } as GivingConfig
+    const record = await prisma.givingConfig.create({
+      data: {
+        churchId: data.churchId,
+        paymentMethods: data.paymentMethods as Prisma.InputJsonValue,
+        currency: data.currency,
+        defaultMethod: data.defaultMethod,
+      },
+    })
+    return toConfig(record)
   }
 
   static async update(id: string, data: Partial<Omit<GivingConfig, 'id' | 'churchId' | 'createdAt' | 'updatedAt'>>): Promise<GivingConfig> {
-    await db.collection(COLLECTIONS.givingConfig).doc(id).update({
-      ...data,
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.givingConfig.update({
+      where: { id },
+      data: {
+        ...(data.paymentMethods !== undefined ? { paymentMethods: data.paymentMethods as Prisma.InputJsonValue } : {}),
+        ...(data.currency !== undefined ? { currency: data.currency } : {}),
+        ...(data.defaultMethod !== undefined ? { defaultMethod: data.defaultMethod } : {}),
+      },
     })
-
-    const doc = await db.collection(COLLECTIONS.givingConfig).doc(id).get()
-    const docData = doc.data()!
-    return {
-      id: doc.id,
-      ...docData,
-      createdAt: toDate(docData.createdAt),
-      updatedAt: toDate(docData.updatedAt),
-    } as GivingConfig
+    return toConfig(record)
   }
 }
-

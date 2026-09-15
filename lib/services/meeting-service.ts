@@ -1,7 +1,4 @@
 import { prisma } from '@/lib/prisma'
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue } from 'firebase-admin/firestore'
 import { StreamingPlatform, MeetingStatus, MeetingPlatformStatus, MeetingData } from '@/lib/types/streaming'
 import { PlatformConnectionService } from './platform-connection-service'
 
@@ -233,11 +230,11 @@ export function expandMeetingSeries(params: {
 }
 
 export class MeetingService {
-  // Firestore backed helpers
+  // Postgres backed helpers
   static async findById(meetingId: string): Promise<MeetingSeries | null> {
-    const doc = await db.collection(COLLECTIONS.meetings).doc(meetingId).get()
-    if (!doc.exists) return null
-    return this.mapDoc(doc.id, doc.data()!)
+    const record = await prisma.meeting.findUnique({ where: { id: meetingId } })
+    if (!record) return null
+    return this.mapRecord(record)
   }
 
   static async create(params: {
@@ -251,24 +248,21 @@ export class MeetingService {
     timezone?: string
     recurrence?: MeetingRecurrence
   }): Promise<MeetingSeries> {
-    const docRef = db.collection(COLLECTIONS.meetings).doc()
-
-    await docRef.set({
-      churchId: params.churchId,
-      createdBy: params.createdBy,
-      branchId: params.branchId ?? null,
-      title: params.title,
-      description: params.description || undefined,
-      startAt: params.startAt,
-      endAt: params.endAt || undefined,
-      timezone: params.timezone || undefined,
-      recurrence: params.recurrence || undefined,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.meeting.create({
+      data: {
+        churchId: params.churchId,
+        createdBy: params.createdBy,
+        branchId: params.branchId ?? null,
+        title: params.title,
+        description: params.description || null,
+        startAt: params.startAt,
+        endAt: params.endAt || params.startAt, // Meeting model has non-nullable endAt
+        timezone: params.timezone || null,
+        recurrence: (params.recurrence as any) || null,
+      },
     })
 
-    const created = await docRef.get()
-    return this.mapDoc(created.id, created.data()!)
+    return this.mapRecord(record)
   }
 
   static async update(
@@ -283,35 +277,35 @@ export class MeetingService {
       branchId?: string | null
     }
   ): Promise<MeetingSeries> {
-    const payload: Record<string, unknown> = {
-      updatedAt: FieldValue.serverTimestamp(),
-    }
+    const data: any = {}
+    if (patch.title !== undefined) data.title = patch.title
+    if (patch.description !== undefined) data.description = patch.description || null
+    if (patch.startAt !== undefined) data.startAt = patch.startAt
+    if (patch.endAt !== undefined) data.endAt = patch.endAt || patch.startAt
+    if (patch.timezone !== undefined) data.timezone = patch.timezone || null
+    if (patch.recurrence !== undefined) data.recurrence = patch.recurrence || null
+    if (patch.branchId !== undefined) data.branchId = patch.branchId ?? null
 
-    if (patch.title !== undefined) payload.title = patch.title
-    if (patch.description !== undefined) payload.description = patch.description || undefined
-    if (patch.startAt !== undefined) payload.startAt = patch.startAt
-    if (patch.endAt !== undefined) payload.endAt = patch.endAt || undefined
-    if (patch.timezone !== undefined) payload.timezone = patch.timezone || undefined
-    if (patch.recurrence !== undefined) payload.recurrence = patch.recurrence || undefined
-    if (patch.branchId !== undefined) payload.branchId = patch.branchId ?? null
+    const record = await prisma.meeting.update({
+      where: { id: meetingId },
+      data,
+    })
 
-    await db.collection(COLLECTIONS.meetings).doc(meetingId).update(payload)
-
-    const updated = await db.collection(COLLECTIONS.meetings).doc(meetingId).get()
-    return this.mapDoc(updated.id, updated.data()!)
+    return this.mapRecord(record)
   }
 
   static async updateGoogle(params: {
     meetingId: string
     google: NonNullable<MeetingSeries['google']>
   }): Promise<MeetingSeries> {
-    await db.collection(COLLECTIONS.meetings).doc(params.meetingId).update({
-      google: params.google,
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.meeting.update({
+      where: { id: params.meetingId },
+      data: {
+        google: params.google as any,
+      },
     })
 
-    const updated = await db.collection(COLLECTIONS.meetings).doc(params.meetingId).get()
-    return this.mapDoc(updated.id, updated.data()!)
+    return this.mapRecord(record)
   }
 
   static async findByChurch(params: {
@@ -320,46 +314,42 @@ export class MeetingService {
     limit?: number
   }): Promise<MeetingSeries[]> {
     const limit = Math.max(1, Math.min(200, Number(params.limit || 100)))
-    let query = db.collection(COLLECTIONS.meetings).where('churchId', '==', params.churchId)
-
     const branchId = params.branchScope?.branchId
-    if (typeof branchId === 'string' && branchId.trim()) {
-      const [branchSnap, allSnap] = await Promise.all([
-        query.where('branchId', '==', branchId).limit(limit).get(),
-        query.where('branchId', '==', null).limit(limit).get(),
-      ])
-      const merged = [...branchSnap.docs, ...allSnap.docs]
-      const dedup = new Map<string, MeetingSeries>()
-      merged.forEach((doc) => {
-        dedup.set(doc.id, this.mapDoc(doc.id, doc.data()))
-      })
-      return Array.from(dedup.values()).sort((a, b) => b.startAt.getTime() - a.startAt.getTime())
-    }
 
-    const snap = await query.limit(limit).get()
-    return snap.docs.map((doc) => this.mapDoc(doc.id, doc.data())).sort((a, b) => b.startAt.getTime() - a.startAt.getTime())
+    const records = await prisma.meeting.findMany({
+      where: {
+        churchId: params.churchId,
+        OR: branchId
+          ? [{ branchId: branchId }, { branchId: null }]
+          : undefined,
+      },
+      take: limit,
+      orderBy: { startAt: 'desc' },
+    })
+
+    return records.map((r) => this.mapRecord(r))
   }
 
-  private static mapDoc(id: string, data: any): MeetingSeries {
+  private static mapRecord(record: any): MeetingSeries {
     return {
-      id,
-      churchId: data.churchId,
-      branchId: data.branchId ?? null,
-      title: data.title,
-      description: data.description,
-      startAt: toDate(data.startAt),
-      endAt: data.endAt ? toDate(data.endAt) : undefined,
-      timezone: data.timezone,
-      recurrence: data.recurrence
+      id: record.id,
+      churchId: record.churchId,
+      branchId: record.branchId ?? null,
+      title: record.title,
+      description: record.description ?? undefined,
+      startAt: record.startAt,
+      endAt: record.endAt ?? undefined,
+      timezone: record.timezone ?? undefined,
+      recurrence: record.recurrence
         ? {
-            ...data.recurrence,
-            until: data.recurrence.until ? toDate(data.recurrence.until) : undefined,
+            ...(record.recurrence as any),
+            until: (record.recurrence as any).until ? new Date((record.recurrence as any).until) : undefined,
           }
         : undefined,
-      google: data.google ?? undefined,
-      createdBy: data.createdBy,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
+      google: (record.google as any) ?? undefined,
+      createdBy: record.createdBy,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     }
   }
 
@@ -400,7 +390,7 @@ export class MeetingService {
       data: {
         churchId,
         title: data.title,
-        description: data.description,
+        description: data.description || null,
         status: MeetingStatus.SCHEDULED,
         startAt: data.startAt,
         endAt: data.endAt,

@@ -1,29 +1,47 @@
 import OpenAI from 'openai'
 
-// DeepSeek API is OpenAI-compatible, so we can use the OpenAI SDK
-// DeepSeek API endpoint: https://api.deepseek.com
-// Get your API key from: https://platform.deepseek.com/api_keys
+// Groq and DeepSeek APIs are OpenAI-compatible, so we can use the OpenAI SDK
+// Groq endpoint: https://api.groq.com/openai/v1 — key: https://console.groq.com/keys
+// DeepSeek endpoint: https://api.deepseek.com — key: https://platform.deepseek.com/api_keys
 
-const apiKey = process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY
-const useDeepSeek = !!process.env.DEEPSEEK_API_KEY
+type Provider = 'groq' | 'deepseek' | 'openai'
+
+const provider: Provider = process.env.GROQ_API_KEY
+  ? 'groq'
+  : process.env.DEEPSEEK_API_KEY
+    ? 'deepseek'
+    : 'openai'
+
+const apiKey =
+  process.env.GROQ_API_KEY || process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY
 
 if (!apiKey) {
-  console.warn('DEEPSEEK_API_KEY or OPENAI_API_KEY not set. AI features will be disabled.')
+  console.warn('GROQ_API_KEY, DEEPSEEK_API_KEY or OPENAI_API_KEY not set. AI features will be disabled.')
+}
+
+const BASE_URLS: Record<Provider, string | undefined> = {
+  groq: 'https://api.groq.com/openai/v1',
+  deepseek: 'https://api.deepseek.com',
+  openai: undefined, // SDK default
 }
 
 const openai = apiKey
   ? new OpenAI({
       apiKey: apiKey,
-      baseURL: useDeepSeek ? 'https://api.deepseek.com' : undefined, // DeepSeek endpoint
+      baseURL: BASE_URLS[provider],
     })
   : null
 
 /**
- * Get the model name based on configuration
+ * Get the model name based on the active provider
+ * Groq models: openai/gpt-oss-120b, openai/gpt-oss-20b, qwen/qwen3-32b, etc.
  * DeepSeek models: deepseek-chat, deepseek-coder
  */
 function getModel(): string {
-  if (useDeepSeek) {
+  if (provider === 'groq') {
+    return process.env.GROQ_MODEL || 'openai/gpt-oss-120b'
+  }
+  if (provider === 'deepseek') {
     return process.env.DEEPSEEK_MODEL || 'deepseek-chat'
   }
   return process.env.OPENAI_MODEL || 'gpt-4'
@@ -41,7 +59,7 @@ export async function getSpiritualCoachingResponse(
   }
 ): Promise<string> {
   if (!openai) {
-    return 'AI coaching is not available. Please configure DEEPSEEK_API_KEY or OPENAI_API_KEY.'
+    return 'AI coaching is not available. Please configure GROQ_API_KEY, DEEPSEEK_API_KEY or OPENAI_API_KEY.'
   }
 
   try {
@@ -232,7 +250,7 @@ export async function generateSpiritualGrowthPlan(
     return {
       plan: {
         title: 'Spiritual Growth Plan',
-        description: 'AI growth plan generation is not available. Please configure DEEPSEEK_API_KEY or OPENAI_API_KEY.',
+        description: 'AI growth plan generation is not available. Please configure GROQ_API_KEY, DEEPSEEK_API_KEY or OPENAI_API_KEY.',
         duration: 30,
         goals: [],
         practices: [],

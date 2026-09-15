@@ -3,8 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { PayrollRecordService, PayrollPeriodService, PayrollPositionService, SalaryService } from '@/lib/services/payroll-service'
 import { UserService } from '@/lib/services/user-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { guardApi } from '@/lib/api-guard'
 
 export async function GET(
@@ -27,11 +26,15 @@ export async function GET(
       )
     }
 
-    // Verify it belongs to church (check via period)
-    const periods = await PayrollPeriodService.findByChurch(church.id)
-    const period = periods.find(p => p.id === record.periodId)
-
-    if (!period) {
+    // Verify it belongs to church (record carries churchId; fall back to period)
+    if (record.churchId && record.churchId !== church.id) {
+      return NextResponse.json(
+        { error: 'Payroll record not found' },
+        { status: 404 }
+      )
+    }
+    const period = await PayrollPeriodService.findById(record.periodId)
+    if (!period || period.churchId !== church.id) {
       return NextResponse.json(
         { error: 'Payroll record not found' },
         { status: 404 }
@@ -39,19 +42,18 @@ export async function GET(
     }
 
     // Get user, salary, and position info
-    const salaryDoc = await db.collection(COLLECTIONS.salaries).doc(record.salaryId).get()
-    const salary = salaryDoc.exists ? salaryDoc.data() : null
+    const salary = record.salaryId ? await SalaryService.findById(record.salaryId) : null
+    const positionId = record.positionId || salary?.positionId
     const [user, position] = await Promise.all([
       UserService.findById(record.userId),
-      salary ? PayrollPositionService.findById(salary.positionId) : Promise.resolve(null),
+      positionId ? PayrollPositionService.findById(positionId) : Promise.resolve(null),
     ])
 
     let department = null
     if (position?.departmentId) {
-      const deptDoc = await db.collection(COLLECTIONS.departments).doc(position.departmentId).get()
-      if (deptDoc.exists) {
-        department = { id: deptDoc.id, ...deptDoc.data() }
-      }
+      department = await prisma.department.findUnique({
+        where: { id: position.departmentId },
+      })
     }
 
     return NextResponse.json({
@@ -112,10 +114,14 @@ export async function PUT(
     }
 
     // Verify it belongs to church
-    const periods = await PayrollPeriodService.findByChurch(church.id)
-    const period = periods.find(p => p.id === record.periodId)
-
-    if (!period) {
+    if (record.churchId && record.churchId !== church.id) {
+      return NextResponse.json(
+        { error: 'Payroll record not found' },
+        { status: 404 }
+      )
+    }
+    const period = await PayrollPeriodService.findById(record.periodId)
+    if (!period || period.churchId !== church.id) {
       return NextResponse.json(
         { error: 'Payroll record not found' },
         { status: 404 }
@@ -159,14 +165,12 @@ export async function PUT(
     const updated = await PayrollRecordService.update(recordId, updateData)
 
     // Get related data
+    const updatedSalary = updated.salaryId ? await SalaryService.findById(updated.salaryId) : null
+    const updatedPositionId = updated.positionId || updatedSalary?.positionId
     const [user, periodData, position] = await Promise.all([
       UserService.findById(updated.userId),
-      PayrollPeriodService.findByChurch(church.id).then(periods => periods.find(p => p.id === updated.periodId)),
-      db.collection(COLLECTIONS.salaries).doc(updated.salaryId).get().then((salaryDoc: any) => {
-        if (!salaryDoc.exists) return null
-        const salary = salaryDoc.data()!
-        return PayrollPositionService.findById(salary.positionId)
-      }),
+      PayrollPeriodService.findById(updated.periodId),
+      updatedPositionId ? PayrollPositionService.findById(updatedPositionId) : Promise.resolve(null),
     ])
 
     return NextResponse.json({

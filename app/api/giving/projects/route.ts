@@ -4,8 +4,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
 import { ProjectService } from '@/lib/services/giving-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { getCurrentChurch } from '@/lib/church-context'
 
 export async function GET(request: Request) {
@@ -27,28 +26,31 @@ export async function GET(request: Request) {
 
     const projects = await ProjectService.findByChurch(church.id)
 
-    // Get giving count for each project
-    const projectsWithProgress = await Promise.all(
-      projects.map(async (project) => {
-        const givingSnapshot = await db.collection(COLLECTIONS.giving)
-          .where('projectId', '==', project.id)
-          .count()
-          .get()
+    // Batch giving counts per project (no N+1)
+    const projectIds = projects.map((p) => p.id)
+    const givingCounts = projectIds.length > 0
+      ? await prisma.giving.groupBy({
+          by: ['projectId'],
+          where: { projectId: { in: projectIds } },
+          _count: { _all: true },
+        })
+      : []
+    const countMap = new Map(givingCounts.map((g) => [g.projectId, g._count._all]))
 
-        const progress = project.goalAmount > 0
-          ? (project.currentAmount / project.goalAmount) * 100
-          : 0
+    const projectsWithProgress = projects.map((project) => {
+      const progress = project.goalAmount > 0
+        ? (project.currentAmount / project.goalAmount) * 100
+        : 0
 
-        return {
-          ...project,
-          progress: Math.min(progress, 100),
-          remainingAmount: Math.max(0, project.goalAmount - project.currentAmount),
-          _count: {
-            giving: givingSnapshot.data().count || 0,
-          },
-        }
-      })
-    )
+      return {
+        ...project,
+        progress: Math.min(progress, 100),
+        remainingAmount: Math.max(0, project.goalAmount - project.currentAmount),
+        _count: {
+          giving: countMap.get(project.id) || 0,
+        },
+      }
+    })
 
     return NextResponse.json(projectsWithProgress)
   } catch (error) {

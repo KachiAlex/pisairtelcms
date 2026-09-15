@@ -9,8 +9,7 @@ import { AccountingExpenseService } from '@/lib/services/accounting-expense-serv
 import { UserService } from '@/lib/services/user-service'
 import { BranchService } from '@/lib/services/branch-service'
 import { ReadingPlanService } from '@/lib/services/reading-plan-service'
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 type MonthlySeries = Record<
   string,
@@ -58,11 +57,11 @@ export async function GET(request: Request) {
       manualIncome,
       users,
       branches,
-      donationsSnap,
+      donationsRows,
       readingPlans,
-      readingPlanCountSnap,
-      resourcesSampleSnap,
-      resourcesCountSnap,
+      readingPlanTotalCount,
+      resourcesSample,
+      resourcesTotalCount,
     ] = await Promise.all([
       AttendanceService.listSessionsByChurch(church!.id, {
         branchId: effectiveBranchId,
@@ -84,25 +83,20 @@ export async function GET(request: Request) {
       }),
       UserService.findByChurch(church!.id),
       BranchService.findByChurch(church!.id),
-      (async () => {
-        let query: FirebaseFirestore.Query = db
-          .collection(COLLECTIONS.donations)
-          .where('churchId', '==', church!.id)
-
-        if (effectiveBranchId) {
-          query = query.where('branchId', '==', effectiveBranchId)
-        }
-
-        return query.limit(500).get()
-      })(),
+      prisma.giving.findMany({
+        where: {
+          churchId: church!.id,
+          ...(effectiveBranchId ? { branchId: effectiveBranchId } : {}),
+        },
+        take: 500,
+      }),
       ReadingPlanService.findAll(200),
-      db.collection(COLLECTIONS.readingPlans).count().get(),
-      db
-        .collection(COLLECTIONS.readingPlanResources)
-        .orderBy('createdAt', 'desc')
-        .limit(200)
-        .get(),
-      db.collection(COLLECTIONS.readingPlanResources).count().get(),
+      prisma.readingPlan.count(),
+      prisma.readingPlanResource.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+      }),
+      prisma.readingPlanResource.count(),
     ])
 
     const scopedUsers = effectiveBranchId
@@ -171,11 +165,10 @@ export async function GET(request: Request) {
     }
 
     // Financial summary
-    const donations = donationsSnap.docs
-      .map((doc) => doc.data())
+    const donations = donationsRows
       .map((data: any) => ({
         amount: Number(data.amount || 0),
-        date: toDate(data.createdAt),
+        date: data.createdAt,
         type: data.type || 'Giving',
       }))
       .filter((entry) => isWithinRange(entry.date, startDate, endDate))
@@ -282,8 +275,6 @@ export async function GET(request: Request) {
     }
 
     // Reading / resources summary
-    const resourcesSample = resourcesSampleSnap.docs.map((doc) => doc.data())
-
     const resourcesByType = resourcesSample.reduce((acc: Record<string, number>, resource: any) => {
       const type = resource.type || 'book'
       acc[type] = (acc[type] || 0) + 1
@@ -297,9 +288,9 @@ export async function GET(request: Request) {
     })
 
     const resourcesSummary = {
-      totalResources: resourcesCountSnap.data().count || 0,
+      totalResources: resourcesTotalCount || 0,
       sampleByType: resourcesByType,
-      totalPlans: readingPlanCountSnap.data().count || 0,
+      totalPlans: readingPlanTotalCount || 0,
       activePlans: activePlans.length,
     }
 

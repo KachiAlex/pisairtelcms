@@ -2,8 +2,7 @@
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { guardApi } from '@/lib/api-guard'
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { UnitMembershipService, UnitService } from '@/lib/services/unit-service'
 
 export async function GET(_: Request, { params }: { params: { unitId: string } }) {
@@ -21,22 +20,14 @@ export async function GET(_: Request, { params }: { params: { unitId: string } }
     return NextResponse.json({ error: 'Only unit heads can view pending invites' }, { status: 403 })
   }
 
-  const snap = await db
-    .collection(COLLECTIONS.unitInvites)
-    .where('churchId', '==', church!.id)
-    .where('unitId', '==', unit.id)
-    .where('status', '==', 'PENDING')
-    .limit(200)
-    .get()
-
-  const invites = snap.docs.map((doc: any) => {
-    const data = doc.data()
-    return {
-      id: doc.id,
-      ...data,
-      createdAt: toDate(data.createdAt),
-      respondedAt: data.respondedAt ? toDate(data.respondedAt) : undefined,
-    }
+  const invites = await prisma.unitInvite.findMany({
+    where: {
+      unitId: unit.id,
+      unit: { churchId: church!.id },
+      status: 'PENDING',
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
   })
 
   return NextResponse.json({ invites })

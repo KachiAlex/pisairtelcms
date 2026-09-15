@@ -2,9 +2,7 @@
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { guardApi } from '@/lib/api-guard'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
 import { PostService } from '@/lib/services/post-service'
 import { UnitMembershipService, UnitService } from '@/lib/services/unit-service'
 import { MessageService } from '@/lib/services/message-service'
@@ -41,15 +39,15 @@ export async function POST(request: Request, { params }: { params: { postId: str
     }
   }
 
-  // Store share record (subcollection under post)
-  const shareRef = db.collection(COLLECTIONS.posts).doc(post.id).collection('shares').doc()
-  await shareRef.set({
-    churchId: church!.id,
-    postId: post.id,
-    sharedByUserId: userId,
-    unitIds,
-    note: note || undefined,
-    createdAt: FieldValue.serverTimestamp(),
+  // Store share record
+  const share = await prisma.postShare.create({
+    data: {
+      churchId: church!.id,
+      postId: post.id,
+      sharedByUserId: userId,
+      unitIds,
+      note: note || null,
+    },
   })
 
   // Notify members via direct messages (simple + consistent with existing messaging)
@@ -74,5 +72,5 @@ export async function POST(request: Request, { params }: { params: { postId: str
     }
   }
 
-  return NextResponse.json({ success: true, shareId: shareRef.id })
+  return NextResponse.json({ success: true, shareId: share.id })
 }

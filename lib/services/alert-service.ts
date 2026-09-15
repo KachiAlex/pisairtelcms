@@ -1,5 +1,4 @@
-import { db, FieldValue } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { NotificationService } from './notification-service'
 
 /**
@@ -55,10 +54,16 @@ export interface MetricSnapshot {
 
 /**
  * AlertService
- * Manages alert rules and threshold monitoring
+ * Manages alert rules and threshold monitoring (PostgreSQL-backed)
  */
 export class AlertService {
-  private static lastMetricValues: Map<string, number> = new Map()
+  private static toAlertRule(record: any): AlertRule {
+    return {
+      ...record,
+      lastTriggeredAt: record.lastTriggeredAt ?? undefined,
+      metadata: (record.metadata as Record<string, any>) ?? undefined,
+    }
+  }
 
   /**
    * Create alert rule
@@ -68,79 +73,76 @@ export class AlertService {
     churchId: string,
     rule: AlertRuleCreate
   ): Promise<AlertRule> {
-    const ruleId = db.collection('alert_rules').doc().id
-
-    const alertRule: Omit<AlertRule, 'id'> = {
-      userId,
-      churchId,
-      name: rule.name,
-      metric: rule.metric,
-      condition: rule.condition,
-      threshold: rule.threshold,
-      frequency: rule.frequency,
-      enabled: true,
-      notifyVia: {
-        email: rule.notifyVia?.email ?? true,
-        inApp: rule.notifyVia?.inApp ?? true,
-        push: rule.notifyVia?.push ?? false,
+    const record = await prisma.alertRule.create({
+      data: {
+        userId,
+        churchId,
+        name: rule.name,
+        metric: rule.metric,
+        condition: rule.condition,
+        threshold: rule.threshold,
+        frequency: rule.frequency,
+        enabled: true,
+        notifyVia: {
+          email: rule.notifyVia?.email ?? true,
+          inApp: rule.notifyVia?.inApp ?? true,
+          push: rule.notifyVia?.push ?? false,
+        },
       },
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }
+    })
 
-    await db.collection('alert_rules').doc(ruleId).set(alertRule)
-
-    return { id: ruleId, ...alertRule }
+    return this.toAlertRule(record)
   }
 
   /**
    * Get alert rules for user
    */
   static async getAlertRules(userId: string, churchId: string): Promise<AlertRule[]> {
-    const snapshot = await db
-      .collection('alert_rules')
-      .where('userId', '==', userId)
-      .where('churchId', '==', churchId)
-      .orderBy('createdAt', 'desc')
-      .get()
-
-    return snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate?.() || new Date(),
-      updatedAt: doc.data().updatedAt?.toDate?.() || new Date(),
-      lastTriggeredAt: doc.data().lastTriggeredAt?.toDate?.() || undefined,
-    })) as AlertRule[]
+    const records = await prisma.alertRule.findMany({
+      where: { userId, churchId },
+      orderBy: { createdAt: 'desc' },
+    })
+    return records.map((r) => this.toAlertRule(r))
   }
 
   /**
-   * Update alert rule
+   * Update alert rule (scoped to owner). Returns whether a rule was updated.
    */
   static async updateAlertRule(
     ruleId: string,
-    updates: Partial<Omit<AlertRule, 'id' | 'userId' | 'churchId' | 'createdAt'>>
-  ): Promise<void> {
-    await db.collection('alert_rules').doc(ruleId).update({
-      ...updates,
-      updatedAt: FieldValue.serverTimestamp(),
+    updates: Partial<Omit<AlertRule, 'id' | 'userId' | 'churchId' | 'createdAt'>>,
+    userId?: string
+  ): Promise<boolean> {
+    const { metadata, ...rest } = updates
+    const result = await prisma.alertRule.updateMany({
+      where: { id: ruleId, ...(userId ? { userId } : {}) },
+      data: {
+        ...rest,
+        ...(metadata !== undefined ? { metadata } : {}),
+      },
     })
+    return result.count > 0
   }
 
   /**
-   * Delete alert rule
+   * Delete alert rule (scoped to owner). Returns whether a rule was deleted.
    */
-  static async deleteAlertRule(ruleId: string): Promise<void> {
-    await db.collection('alert_rules').doc(ruleId).delete()
+  static async deleteAlertRule(ruleId: string, userId?: string): Promise<boolean> {
+    const result = await prisma.alertRule.deleteMany({
+      where: { id: ruleId, ...(userId ? { userId } : {}) },
+    })
+    return result.count > 0
   }
 
   /**
-   * Enable/disable alert rule
+   * Enable/disable alert rule (scoped to owner)
    */
-  static async toggleAlertRule(ruleId: string, enabled: boolean): Promise<void> {
-    await db.collection('alert_rules').doc(ruleId).update({
-      enabled,
-      updatedAt: FieldValue.serverTimestamp(),
+  static async toggleAlertRule(ruleId: string, enabled: boolean, userId?: string): Promise<boolean> {
+    const result = await prisma.alertRule.updateMany({
+      where: { id: ruleId, ...(userId ? { userId } : {}) },
+      data: { enabled },
     })
+    return result.count > 0
   }
 
   /**

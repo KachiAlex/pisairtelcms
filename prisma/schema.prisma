@@ -136,16 +136,33 @@ model User {
   branchId String?
   branch   Branch? @relation(fields: [branchId], references: [id])
 
+  // Staff & designation (promoted from legacy Firestore data)
+  isStaff          Boolean @default(false)
+  staffLevelId     String?
+  staffLevelName   String?
+  designationId    String?
+  designationName  String?
+  employmentStatus String?
+  isSuspended      Boolean @default(false)
+  customWage       Json?
+
   // Relationships
-  departments DepartmentMembership[]
-  groups      GroupMembership[]
-  badges      UserBadge[]
+  departments               DepartmentMembership[]
+  groups                    GroupMembership[]
+  badges                    UserBadge[]
+  unitMemberships           UnitMembership[]
+  attendance                AttendanceRecord[]
+  accountingIncome          AccountingIncome[]
+  accountingExpenses        AccountingExpense[]
+  unitsLed                  Unit[]                 @relation("UnitLeader")
+  attendanceSessionsCreated AttendanceSession[]    @relation("AttendanceCreatedBy")
 
   // Branch admin relationships
   branchAdminOf          Branch?               @relation("BranchAdmin")
   branchAdminAssignments BranchAdmin[]         @relation("BranchAdminUser")
   prayerRequests         PrayerRequest[]
   prayerInteractions     PrayerInteraction[]
+  engagementEvents       EngagementEvent[]
   sermonsWatched         SermonView[]
   sermonsDownloaded      SermonDownload[]
   giving                 Giving[]
@@ -161,6 +178,9 @@ model User {
   testimonies            Testimony[]
   readingPlans           ReadingPlanProgress[]
   aiCoaching             AICoachingSession[]
+  readingCoachSessions   ReadingCoachSession[]
+  readingCoachNudges     ReadingCoachNudge[]
+  recommendations        Recommendation[]
   followUps              FollowUp[]
   mentorAssignments      MentorAssignment[]    @relation("Mentor")
   menteeAssignments      MentorAssignment[]    @relation("Mentee")
@@ -169,7 +189,7 @@ model User {
   childrenCheckIns       ChildrenCheckIn[]
 
   // Payroll
-  salary         UserSalary?
+  userSalaries   UserSalary[]
   payrollRecords PayrollRecord[]
 
   // Member Invitation System
@@ -179,8 +199,8 @@ model User {
   createdFromSubmission  RegistrationSubmission[] @relation("CreatedFromSubmission")
 
   // Survey System
-  createdSurveys         Survey[]         @relation("SurveyCreator")
-  surveyResponses        SurveyResponse[] @relation("SurveyRespondent")
+  createdSurveys  Survey[]         @relation("SurveyCreator")
+  surveyResponses SurveyResponse[] @relation("SurveyRespondent")
 
   // AI Assistant Notifications
   notifications          Notification[]
@@ -194,15 +214,19 @@ model User {
   xp    Int @default(0)
   level Int @default(1)
 
-  createdAt                  DateTime                     @default(now())
-  updatedAt                  DateTime                     @updatedAt
-  lastLoginAt                DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastLoginAt DateTime?
 
   // Legacy Firestore data preservation
-  firestoreData              Json?
+  firestoreData Json?
 
   ReadingPlanNewsletter      ReadingPlanNewsletter[]
   ReadingPlanNewsletterEvent ReadingPlanNewsletterEvent[]
+  PasswordResetToken         PasswordResetToken[]
+  DigitalCourseEnrollment    DigitalCourseEnrollment[]
+  DigitalCourseAccessRequest DigitalCourseAccessRequest[]
+  DigitalExamAttempt         DigitalExamAttempt[]
 
   @@index([email])
   @@index([churchId])
@@ -232,6 +256,11 @@ model Church {
   customDomain   String?
   domainVerified Boolean @default(false)
 
+  // Certificate signature settings (migrated from church doc fields)
+  certificateSignatureUrl   String?
+  certificateSignatureTitle String?
+  certificateSignatureName  String?
+
   // Subscription & Licensing
   subscription Subscription?
 
@@ -258,6 +287,19 @@ model Church {
   payrollPeriods   PayrollPeriod[]
   payrollRecords   PayrollRecord[]
 
+  // Staff & designations
+  staffLevels  StaffLevel[]
+  designations Designation[]
+
+  // Invite tokens for member/admin signup links
+  churchInvites ChurchInvite[]
+
+  // AI discipleship recommendations
+  recommendations Recommendation[]
+
+  // Scheduled event reminders
+  eventReminders EventReminder[]
+
   // Member Invitation System
   invitationForms         InvitationForm[]
   invitationLinks         InvitationLink[]
@@ -272,18 +314,35 @@ model Church {
   livestreams              Livestream[]              @relation("Livestreams")
   externalLivestreamConfig ExternalLivestreamConfig?
   meetings                 Meeting[]                 @relation("Meetings")
-  
+
   // Analytics Cache
-  analyticsCaches          AnalyticsCache[]          @relation("AnalyticsCaches")
+  analyticsCaches AnalyticsCache[] @relation("AnalyticsCaches")
+
+  // Analytics records + engagement events
+  analyticsRecords AnalyticsRecord[]
+  engagementEvents EngagementEvent[]
 
   // AI Assistant Notifications
-  notifications            Notification[]
+  notifications Notification[]
+
+  // New relations
+  attendanceSessions AttendanceSession[]
+  accountingIncome   AccountingIncome[]
+  accountingExpenses AccountingExpense[]
+  unitTypes          UnitType[]
+  units              Unit[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Legacy Firestore data preservation
-  firestoreData Json?
+  firestoreData            Json?
+  ChurchRole               ChurchRole[]
+  GivingConfig             GivingConfig?
+  SubscriptionPayment      SubscriptionPayment[]
+  SubscriptionPlanOverride SubscriptionPlanOverride[]
+  UnitInviteLink           UnitInviteLink[]
+  DigitalCourse            DigitalCourse[]
 
   @@index([slug])
   @@index([customDomain])
@@ -333,11 +392,21 @@ model Branch {
   groups      Group[]
   events      Event[]
   surveys     Survey[]
+  meetings    Meeting[]
+
+  // New relations
+  attendanceSessions AttendanceSession[]
+  accountingIncome   AccountingIncome[]
+  accountingExpenses AccountingExpense[]
+  units              Unit[]
 
   isActive Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Legacy Firestore data preservation
+  firestoreData Json?
 
   @@unique([churchId, slug])
   @@index([churchId])
@@ -345,9 +414,6 @@ model Branch {
   @@index([isActive])
   @@index([parentBranchId])
   @@index([level])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 // Branch Admin Assignment
@@ -368,12 +434,12 @@ model BranchAdmin {
   assignedAt DateTime @default(now())
   assignedBy String? // User ID who assigned this admin
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@unique([branchId, userId])
   @@index([branchId])
   @@index([userId])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 // Subscription Plans
@@ -407,10 +473,10 @@ model SubscriptionPlan {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([type])
-
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([type])
 }
 
 // Church Subscriptions
@@ -442,12 +508,12 @@ model Subscription {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([churchId])
   @@index([status])
   @@index([currentPeriodEnd])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 // Usage Tracking
@@ -471,12 +537,12 @@ model UsageTracking {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@unique([churchId, periodStart])
   @@index([churchId])
   @@index([periodEnd])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 // Departments & Groups
@@ -494,11 +560,11 @@ model Department {
   createdAt        DateTime               @default(now())
   updatedAt        DateTime               @updatedAt
 
-  @@index([churchId])
-  @@index([branchId])
-
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([churchId])
+  @@index([branchId])
 }
 
 model DepartmentMembership {
@@ -510,12 +576,12 @@ model DepartmentMembership {
   role         String? // e.g., "Member", "Leader", "Coordinator"
   joinedAt     DateTime   @default(now())
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@unique([userId, departmentId])
   @@index([userId])
   @@index([departmentId])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model Group {
@@ -543,12 +609,12 @@ model Group {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([churchId])
   @@index([branchId])
   @@index([departmentId])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model GroupMembership {
@@ -560,25 +626,29 @@ model GroupMembership {
   role     String?  @default("Member")
   joinedAt DateTime @default(now())
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@unique([userId, groupId])
   @@index([userId])
   @@index([groupId])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 // AI Discipleship Engine
 model ReadingPlan {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   title       String
   description String?
   duration    Int // days
   difficulty  String?
   topics      String[] // e.g., ["Faith", "Prayer", "Healing"]
-  createdAt   DateTime @default(now())
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   progress              ReadingPlanProgress[]
+  days                  ReadingPlanDay[]
   ReadingPlanNewsletter ReadingPlanNewsletter[]
 
   // Legacy Firestore data preservation
@@ -595,12 +665,157 @@ model ReadingPlanProgress {
   completed     Boolean     @default(false)
   startedAt     DateTime    @default(now())
   completedAt   DateTime?
-
-  @@unique([userId, readingPlanId])
-  @@index([userId])
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@unique([userId, readingPlanId])
+  @@index([userId])
+}
+
+// Daily content for a reading plan (migrated from Firestore reading_plan_days)
+model ReadingPlanDay {
+  id             String      @id @default(cuid())
+  planId         String
+  plan           ReadingPlan @relation(fields: [planId], references: [id])
+  dayNumber      Int
+  title          String
+  summary        String?
+  passageId      String
+  bibleVersionId String
+  devotionalText String?
+  prayerFocus    String?
+  resourceIds    String[]
+  firestoreData  Json?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@unique([planId, dayNumber])
+  @@index([planId])
+}
+
+// Shared discipleship resource library (migrated from reading_plan_resources)
+model ReadingPlanResource {
+  id            String   @id @default(cuid())
+  planIds       String[]
+  title         String
+  description   String?
+  author        String?
+  categoryId    String?
+  tags          String[]
+  type          String // book | pdf | audio | video | link
+  fileUrl       String?
+  fileName      String?
+  filePath      String?
+  contentType   String?
+  size          Int?
+  createdBy     String
+  metadata      Json?
+  firestoreData Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([categoryId])
+  @@index([createdBy])
+}
+
+// Resource library categories (migrated from reading_resource_categories)
+model ReadingResourceCategory {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?
+  color         String?
+  icon          String?
+  firestoreData Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// AI reading-coach conversation history (migrated from reading_coach_sessions)
+model ReadingCoachSession {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  planId           String?
+  dayNumber        Int?
+  question         String
+  answer           String
+  actionStep       String?
+  encouragement    String?
+  scriptures       String[]
+  followUpQuestion String?
+  metadata         Json?
+  firestoreData    Json?
+  createdAt        DateTime @default(now())
+
+  @@index([userId])
+  @@index([planId])
+}
+
+// Coach nudges/reminders (migrated from reading_coach_nudges)
+model ReadingCoachNudge {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  planId        String?
+  type          String // progress | reminder | celebration | insight
+  message       String
+  status        String    @default("pending") // pending | sent | dismissed
+  scheduledAt   DateTime?
+  metadata      Json?
+  firestoreData Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+// API.Bible passage cache (migrated from bible_passage_cache)
+model BiblePassageCache {
+  id            String   @id // "{bibleId}::{passageId}"
+  bibleId       String
+  passageId     String
+  reference     String
+  content       String
+  html          String?
+  copyright     String?
+  firestoreData Json?
+  fetchedAt     DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([bibleId])
+}
+
+// Generated recommendations (migrated from Firestore recommendations)
+model Recommendation {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id])
+  churchId        String
+  church          Church    @relation(fields: [churchId], references: [id])
+  type            String // attendance | scheduling | content | engagement | member
+  title           String
+  description     String
+  reason          String
+  confidence      String // low | medium | high | very_high
+  priority        Int       @default(5)
+  suggestedAction String
+  expectedImpact  String
+  dataPoints      String[]
+  status          String    @default("pending") // pending | accepted | rejected | implemented
+  actionTakenAt   DateTime?
+  actionNotes     String?
+  metrics         Json?
+  firestoreData   Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([churchId])
+  @@index([status])
 }
 
 enum ReadingPlanNewsletterStatus {
@@ -650,12 +865,12 @@ model ReadingPlanNewsletter {
   updatedAt       DateTime                          @updatedAt
   events          ReadingPlanNewsletterEvent[]
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([churchId])
   @@index([readingPlanId])
   @@index([status, scheduledAt])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model ReadingPlanNewsletterEvent {
@@ -668,12 +883,12 @@ model ReadingPlanNewsletterEvent {
   metadata     Json?
   createdAt    DateTime                       @default(now())
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([newsletterId])
   @@index([userId])
   @@index([type])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model AICoachingSession {
@@ -685,10 +900,10 @@ model AICoachingSession {
   topic     String?
   createdAt DateTime @default(now())
 
-  @@index([userId])
-
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([userId])
 }
 
 model FollowUp {
@@ -701,10 +916,10 @@ model FollowUp {
   sentAt    DateTime  @default(now())
   readAt    DateTime?
 
-  @@index([userId])
-
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([userId])
 }
 
 model MentorAssignment {
@@ -716,12 +931,12 @@ model MentorAssignment {
   assignedAt DateTime @default(now())
   status     String   @default("Active")
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@unique([mentorId, menteeId])
   @@index([mentorId])
   @@index([menteeId])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 // Social Network
@@ -739,12 +954,13 @@ model Post {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+  PostShare     PostShare[]
+
   @@index([userId])
   @@index([churchId])
   @@index([createdAt])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model PostLike {
@@ -755,28 +971,30 @@ model PostLike {
   post      Post     @relation(fields: [postId], references: [id])
   createdAt DateTime @default(now())
 
-  @@unique([userId, postId])
-  @@index([postId])
-
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@unique([userId, postId])
+  @@index([postId])
 }
 
 model Comment {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  postId    String
-  post      Post     @relation(fields: [postId], references: [id])
-  content   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([postId])
-  @@index([userId])
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  postId          String
+  post            Post     @relation(fields: [postId], references: [id])
+  parentCommentId String?
+  content         String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   // Legacy Firestore data preservation
   firestoreData Json?
+  CommentLike   CommentLike[]
+
+  @@index([postId])
+  @@index([userId])
 }
 
 model Testimony {
@@ -789,11 +1007,11 @@ model Testimony {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([userId])
-  @@index([approved])
-
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([userId])
+  @@index([approved])
 }
 
 // Prayer Wall
@@ -807,16 +1025,17 @@ model PrayerRequest {
   content      String
   status       PrayerStatus        @default(ACTIVE)
   isAnonymous  Boolean             @default(false)
+  prayerCount  Int                 @default(0)
   interactions PrayerInteraction[]
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([userId])
   @@index([churchId])
   @@index([status])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model PrayerInteraction {
@@ -829,31 +1048,36 @@ model PrayerInteraction {
   comment         String?
   createdAt       DateTime      @default(now())
 
-  @@unique([userId, prayerRequestId])
-  @@index([prayerRequestId])
-
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@unique([userId, prayerRequestId])
+  @@index([prayerRequestId])
 }
 
 // Media & Sermons
 model Sermon {
-  id           String   @id @default(cuid())
-  title        String
-  description  String?
-  speaker      String
-  videoUrl     String?
-  audioUrl     String?
-  thumbnailUrl String?
-  duration     Int? // seconds
-  category     String?
-  tags         String[]
-  churchId     String
-  church       Church   @relation(fields: [churchId], references: [id])
+  id             String   @id @default(cuid())
+  title          String
+  description    String?
+  speaker        String
+  videoUrl       String?
+  audioUrl       String?
+  thumbnailUrl   String?
+  duration       Int? // seconds
+  category       String?
+  tags           String[]
+  searchKeywords String[]
+  churchId       String
+  church         Church   @relation(fields: [churchId], references: [id])
 
   // AI-generated content
   aiSummary String?
   topics    String[]
+
+  // Denormalized counters (kept in sync by SermonViewService/SermonDownloadService)
+  viewsCount     Int @default(0)
+  downloadsCount Int @default(0)
 
   views     SermonView[]
   downloads SermonDownload[]
@@ -861,12 +1085,12 @@ model Sermon {
   createdAt   DateTime  @default(now())
   publishedAt DateTime?
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([churchId])
   @@index([category])
   @@index([createdAt])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model SermonView {
@@ -878,12 +1102,13 @@ model SermonView {
   watchedDuration Int      @default(0) // seconds
   completed       Boolean  @default(false)
   createdAt       DateTime @default(now())
-
-  @@unique([userId, sermonId])
-  @@index([sermonId])
+  updatedAt       DateTime @updatedAt
 
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@unique([userId, sermonId])
+  @@index([sermonId])
 }
 
 model SermonDownload {
@@ -894,11 +1119,11 @@ model SermonDownload {
   sermon       Sermon   @relation(fields: [sermonId], references: [id])
   downloadedAt DateTime @default(now())
 
-  @@unique([userId, sermonId])
-  @@index([sermonId])
-
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@unique([userId, sermonId])
+  @@index([sermonId])
 }
 
 // Giving & Financial
@@ -920,67 +1145,79 @@ model Project {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([churchId])
-  @@index([status])
-
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([churchId])
+  @@index([status])
 }
 
 model Giving {
-  id            String     @id @default(cuid())
-  userId        String
-  user          User       @relation(fields: [userId], references: [id])
-  amount        Float
-  type          GivingType
-  projectId     String?
-  project       Project?   @relation(fields: [projectId], references: [id])
-  paymentMethod String? // "Card", "Bank Transfer", "Cash", etc.
-  transactionId String?
-  receiptUrl    String?
-  notes         String?
-  createdAt     DateTime   @default(now())
-
-  @@index([userId])
-  @@index([projectId])
-  @@index([createdAt])
+  id                 String     @id @default(cuid())
+  userId             String
+  user               User       @relation(fields: [userId], references: [id])
+  churchId           String?
+  branchId           String?
+  amount             Float
+  currency           String?
+  type               GivingType
+  projectId          String?
+  project            Project?   @relation(fields: [projectId], references: [id])
+  paymentMethod      String? // "Card", "Bank Transfer", "Cash", etc.
+  transactionId      String?
+  status             String     @default("CONFIRMED")
+  bankTransferBankId String?
+  transferReceiptUrl String?
+  receiptUrl         String?
+  notes              String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([userId])
+  @@index([churchId])
+  @@index([branchId])
+  @@index([projectId])
+  @@index([transactionId])
+  @@index([createdAt])
 }
 
 // Events
 model Event {
-  id           String    @id @default(cuid())
-  title        String
-  description  String?
-  type         EventType
-  churchId     String
-  church       Church    @relation(fields: [churchId], references: [id])
-  branchId     String?
-  branch       Branch?   @relation(fields: [branchId], references: [id])
-  groupId      String?
-  group        Group?    @relation(fields: [groupId], references: [id])
-  location     String?
-  startDate    DateTime
-  endDate      DateTime?
-  maxAttendees Int?
-  isTicketed   Boolean   @default(false)
-  ticketPrice  Float?
-  imageUrl     String?
+  id             String    @id @default(cuid())
+  title          String
+  description    String?
+  type           EventType
+  churchId       String
+  church         Church    @relation(fields: [churchId], references: [id])
+  branchId       String?
+  branch         Branch?   @relation(fields: [branchId], references: [id])
+  groupId        String?
+  group          Group?    @relation(fields: [groupId], references: [id])
+  location       String?
+  startDate      DateTime
+  endDate        DateTime?
+  maxAttendees   Int?
+  isTicketed     Boolean   @default(false)
+  ticketPrice    Float?
+  imageUrl       String?
+  reminderConfig Json?
 
   registrations EventRegistration[]
   attendances   EventAttendance[]
+  reminders     EventReminder[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([churchId])
   @@index([branchId])
   @@index([startDate])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model EventRegistration {
@@ -993,13 +1230,14 @@ model EventRegistration {
   qrCode       String?
   status       String   @default("Registered") // "Registered", "Cancelled", "Attended"
   registeredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Legacy Firestore data preservation
+  firestoreData Json?
 
   @@unique([userId, eventId])
   @@index([eventId])
   @@index([userId])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model EventAttendance {
@@ -1010,11 +1248,35 @@ model EventAttendance {
   event       Event    @relation(fields: [eventId], references: [id])
   checkedInAt DateTime @default(now())
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@unique([userId, eventId])
   @@index([eventId])
+}
+
+// Scheduled event reminders (migrated from Firestore event_reminders)
+model EventReminder {
+  id               String   @id @default(cuid())
+  eventId          String
+  event            Event    @relation(fields: [eventId], references: [id])
+  churchId         String
+  church           Church   @relation(fields: [churchId], references: [id])
+  notifyAt         DateTime
+  message          String
+  status           String   @default("scheduled") // scheduled | sent | cancelled
+  frequencyMinutes Int      @default(60)
+  durationMinutes  Int      @default(60)
+  createdBy        String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([eventId])
+  @@index([churchId])
+  @@index([status, notifyAt])
 }
 
 // Check-ins
@@ -1026,13 +1288,14 @@ model CheckIn {
   qrCode      String
   location    String?
   checkedInAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  // Legacy Firestore data preservation
+  firestoreData Json?
 
   @@index([userId])
   @@index([eventId])
   @@index([checkedInAt])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model ChildrenCheckIn {
@@ -1043,12 +1306,14 @@ model ChildrenCheckIn {
   qrCode       String
   checkedInAt  DateTime  @default(now())
   checkedOutAt DateTime?
-
-  @@index([parentId])
-  @@index([checkedInAt])
+  createdAt    DateTime  @default(now())
 
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([childId])
+  @@index([parentId])
+  @@index([checkedInAt])
 }
 
 // Messaging
@@ -1062,12 +1327,12 @@ model Message {
   read       Boolean  @default(false)
   createdAt  DateTime @default(now())
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([senderId])
   @@index([receiverId])
   @@index([createdAt])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model GroupMessage {
@@ -1079,11 +1344,11 @@ model GroupMessage {
   content   String
   createdAt DateTime @default(now())
 
-  @@index([groupId])
-  @@index([createdAt])
-
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([groupId])
+  @@index([createdAt])
 }
 
 // Gamification
@@ -1095,6 +1360,7 @@ model Badge {
   icon        String?
   xpReward    Int       @default(0)
   createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   users UserBadge[]
 
@@ -1110,11 +1376,11 @@ model UserBadge {
   badge    Badge    @relation(fields: [badgeId], references: [id])
   earnedAt DateTime @default(now())
 
-  @@unique([userId, badgeId])
-  @@index([userId])
-
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@unique([userId, badgeId])
+  @@index([userId])
 }
 
 // Workforce Management
@@ -1130,11 +1396,11 @@ model VolunteerShift {
   reminderSent Boolean   @default(false)
   createdAt    DateTime  @default(now())
 
-  @@index([userId])
-  @@index([startTime])
-
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([userId])
+  @@index([startTime])
 }
 
 model Task {
@@ -1150,11 +1416,11 @@ model Task {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  @@index([userId])
-  @@index([status])
-
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([userId])
+  @@index([status])
 }
 
 // Payroll Management
@@ -1176,11 +1442,11 @@ model PayrollPosition {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([churchId])
-  @@index([departmentId])
-
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([churchId])
+  @@index([departmentId])
 }
 
 model WageScale {
@@ -1218,17 +1484,75 @@ model WageScale {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([positionId])
   @@index([churchId])
   @@index([effectiveFrom])
+}
 
-  // Legacy Firestore data preservation
-  firestoreData Json?
+// Staff hierarchy levels (migrated from Firestore staff_levels)
+model StaffLevel {
+  id                String   @id @default(cuid())
+  churchId          String
+  church            Church   @relation(fields: [churchId], references: [id])
+  name              String
+  description       String?
+  defaultWageAmount Float
+  currency          String   @default("USD")
+  payFrequency      String // weekly | biweekly | monthly | annual
+  order             Int      @default(0)
+  isDefault         Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([churchId])
+}
+
+// Church invite tokens (migrated from Firestore church_invites)
+model ChurchInvite {
+  id              String    @id @default(cuid())
+  churchId        String
+  church          Church    @relation(fields: [churchId], references: [id])
+  createdByUserId String
+  purpose         String // MEMBER_SIGNUP | BRANCH_ADMIN_SIGNUP
+  tokenHash       String
+  status          String    @default("ACTIVE") // ACTIVE | REVOKED | USED
+  branchId        String?
+  targetRole      String?
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  usedAt          DateTime?
+  usedByUserId    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([churchId])
+  @@index([tokenHash])
+}
+
+// Church-specific designations/titles (migrated from Firestore church_designations)
+model Designation {
+  id          String   @id @default(cuid())
+  churchId    String
+  church      Church   @relation(fields: [churchId], references: [id])
+  name        String
+  description String?
+  category    String? // Worker | Leader | Admin
+  key         String?
+  isDefault   Boolean  @default(false)
+  isProtected Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([churchId])
+  @@index([key])
 }
 
 model UserSalary {
   id          String          @id @default(cuid())
-  userId      String          @unique
+  userId      String
   user        User            @relation(fields: [userId], references: [id])
   positionId  String
   position    PayrollPosition @relation(fields: [positionId], references: [id])
@@ -1252,13 +1576,13 @@ model UserSalary {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([userId])
   @@index([positionId])
   @@index([churchId])
   @@index([isActive])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model PayrollPeriod {
@@ -1285,13 +1609,13 @@ model PayrollPeriod {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@unique([churchId, startDate, endDate])
   @@index([churchId])
   @@index([payDate])
   @@index([status])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model PayrollRecord {
@@ -1333,14 +1657,14 @@ model PayrollRecord {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([userId])
   @@index([periodId])
   @@index([churchId])
   @@index([status])
   @@index([paymentDate])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 // Member Invitation System
@@ -1363,11 +1687,11 @@ model InvitationForm {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([churchId])
-  @@index([createdBy])
-
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([churchId])
+  @@index([createdBy])
 }
 
 model InvitationLink {
@@ -1390,15 +1714,15 @@ model InvitationLink {
 
   createdAt DateTime @default(now())
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([token])
   @@index([churchId])
   @@index([formId])
   @@index([createdBy])
   @@index([expiresAt])
   @@index([isActive])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model RegistrationSubmission {
@@ -1426,15 +1750,15 @@ model RegistrationSubmission {
 
   submittedAt DateTime @default(now())
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([linkId])
   @@index([formId])
   @@index([churchId])
   @@index([status])
   @@index([submittedAt])
   @@index([reviewedBy])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 // Security and analytics tracking
@@ -1446,12 +1770,12 @@ model InvitationLinkAccess {
   userAgent  String?
   accessedAt DateTime       @default(now())
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([linkId])
   @@index([accessedAt])
   @@index([ipAddress])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 // Survey System
@@ -1519,15 +1843,15 @@ model Survey {
   publishedAt DateTime?
   closedAt    DateTime?
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([churchId])
   @@index([branchId])
   @@index([createdBy])
   @@index([status])
   @@index([publishedAt])
   @@index([deadline])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model SurveyQuestion {
@@ -1556,12 +1880,12 @@ model SurveyQuestion {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([surveyId])
   @@index([sectionId])
   @@index([order])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model SurveySection {
@@ -1575,11 +1899,11 @@ model SurveySection {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
-  @@index([surveyId])
-  @@index([order])
-
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([surveyId])
+  @@index([order])
 }
 
 model SurveyResponse {
@@ -1597,12 +1921,12 @@ model SurveyResponse {
   // Relations
   questionResponses SurveyQuestionResponse[]
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([surveyId])
   @@index([userId])
   @@index([submittedAt])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model SurveyQuestionResponse {
@@ -1616,12 +1940,12 @@ model SurveyQuestionResponse {
   value     Json
   textValue String? // For "other" options or additional text
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@unique([responseId, questionId])
   @@index([responseId])
   @@index([questionId])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model SurveyTemplate {
@@ -1643,13 +1967,13 @@ model SurveyTemplate {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([churchId])
   @@index([createdBy])
   @@index([category])
   @@index([isSystemTemplate])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 // Multi-Platform Streaming - Platform Connections
@@ -1693,14 +2017,14 @@ model PlatformConnection {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@unique([churchId, platform])
   @@index([churchId])
   @@index([platform])
   @@index([status])
   @@index([expiresAt])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 // Multi-Platform Streaming - Livestreams
@@ -1714,6 +2038,7 @@ enum LivestreamPlatformStatus {
   PENDING
   LIVE
   ENDED
+  FAILED
 }
 
 model Livestream {
@@ -1743,13 +2068,13 @@ model Livestream {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([churchId])
   @@index([createdBy])
   @@index([status])
   @@index([startAt])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model LivestreamPlatform {
@@ -1772,13 +2097,13 @@ model LivestreamPlatform {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@unique([livestreamId, platform])
   @@index([livestreamId])
   @@index([platform])
   @@index([status])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model ExternalLivestreamConfig {
@@ -1796,12 +2121,12 @@ model ExternalLivestreamConfig {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@index([churchId])
   @@index([platform])
   @@index([enabled])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 // Multi-Platform Streaming - Meetings (Enhanced)
@@ -1847,13 +2172,20 @@ model Meeting {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
+  // Extended Meeting Details
+  branchId   String?
+  branch     Branch? @relation(fields: [branchId], references: [id])
+  timezone   String?
+  recurrence Json? // { frequency, interval, byWeekday, byMonthDay, until }
+  google     Json? // { calendarId, calendarEventId, meetUrl }
+
   @@index([churchId])
   @@index([createdBy])
   @@index([status])
   @@index([startAt])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 model MeetingPlatform {
@@ -1876,42 +2208,42 @@ model MeetingPlatform {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
   @@unique([meetingId, platform])
   @@index([meetingId])
   @@index([platform])
   @@index([status])
-
-  // Legacy Firestore data preservation
-  firestoreData Json?
 }
 
 // Analytics Cache
 model AnalyticsCache {
-  id              String   @id @default(cuid())
-  churchId        String   @unique
-  church          Church   @relation("AnalyticsCaches", fields: [churchId], references: [id], onDelete: Cascade)
-  
+  id       String @id @default(cuid())
+  churchId String @unique
+  church   Church @relation("AnalyticsCaches", fields: [churchId], references: [id], onDelete: Cascade)
+
   // Cached snapshot data
-  snapshotData    Json     // AnalyticsSnapshot as JSON
-  
+  snapshotData Json // AnalyticsSnapshot as JSON
+
   // Recommendations
   recommendationsData Json @default("{\"attendance\":[],\"schedules\":[],\"engagement\":[],\"content\":[]}")
-  
+
   // Cache metadata
-  lastUpdated     DateTime @default(now())
-  nextRefresh     DateTime @default(now())
-  
+  lastUpdated DateTime @default(now())
+  nextRefresh DateTime @default(now())
+
   // Data quality metrics
-  qualityData     Json     @default("{\"dataCompleteness\":0,\"eventsCount\":0,\"membersCount\":0,\"avgEventAttendance\":0}")
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
-  @@index([churchId])
-  @@index([nextRefresh])
+  qualityData Json @default("{\"dataCompleteness\":0,\"eventsCount\":0,\"membersCount\":0,\"avgEventAttendance\":0}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([churchId])
+  @@index([nextRefresh])
 }
 
 // Update Church model to include new relations
@@ -1929,6 +2261,12 @@ enum NotificationType {
   GIVING_CAMPAIGN
   CARE_ALERT
   CUSTOM
+  // Real-time notification types (migrated from notifications collection)
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+  REMINDER
 }
 
 enum NotificationStatus {
@@ -1942,27 +2280,876 @@ model Notification {
   id           String             @id @default(cuid())
   churchId     String
   church       Church             @relation(fields: [churchId], references: [id], onDelete: Cascade)
-  userId       String?            // Target user (null = church-wide)
+  userId       String? // Target user (null = church-wide)
   user         User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
   type         NotificationType
   status       NotificationStatus @default(PENDING)
   title        String
   message      String
-  actionUrl    String?            // Optional URL for action (e.g., /members/xxx)
-  actionLabel  String?            // Optional button label
-  metadata     Json?              // Extra context (e.g., { age: 30, years: 5 })
-  scheduledFor DateTime           // When the notification should be shown
+  actionUrl    String? // Optional URL for action (e.g., /members/xxx)
+  actionLabel  String? // Optional button label
+  link         String? // Legacy link field (Firestore notifications)
+  icon         String? // Legacy icon field (Firestore notifications)
+  read         Boolean            @default(false)
+  readAt       DateTime?
+  deleted      Boolean            @default(false)
+  deletedAt    DateTime?
+  metadata     Json? // Extra context (e.g., { age: 30, years: 5 })
+  scheduledFor DateTime           @default(now()) // When the notification should be shown
   sentAt       DateTime?
   dismissedAt  DateTime?
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
+
+  // Legacy Firestore data preservation
+  firestoreData Json?
 
   @@index([churchId])
   @@index([userId])
   @@index([type])
   @@index([status])
   @@index([scheduledFor])
+}
+
+model ChurchGoogleToken {
+  id                String   @id @default(cuid())
+  churchId          String   @unique
+  accessToken       String?
+  refreshToken      String?
+  scope             String?
+  tokenType         String?
+  expiryDate        String?
+  calendarId        String?
+  connectedByUserId String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([churchId])
+}
+
+// Attendance
+model AttendanceSession {
+  id        String             @id @default(cuid())
+  churchId  String
+  church    Church             @relation(fields: [churchId], references: [id])
+  branchId  String?
+  branch    Branch?            @relation(fields: [branchId], references: [id])
+  title     String
+  type      String // "SERVICE", "MEETING"
+  mode      String // "OFFLINE", "ONLINE", "HYBRID"
+  startAt   DateTime
+  endAt     DateTime?
+  location  String?
+  notes     String?
+  headcount Json? // { total, men, women, children, firstTimers }
+  createdBy String
+  creator   User               @relation("AttendanceCreatedBy", fields: [createdBy], references: [id])
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  records   AttendanceRecord[]
+
+  @@index([churchId])
+  @@index([branchId])
+  @@index([startAt])
+}
+
+model AttendanceRecord {
+  id          String            @id @default(cuid())
+  churchId    String
+  branchId    String?
+  sessionId   String
+  session     AttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?             @relation(fields: [userId], references: [id])
+  guestName   String?
+  channel     String // "OFFLINE", "ONLINE"
+  checkedInAt DateTime          @default(now())
+
+  @@index([sessionId])
+  @@index([userId])
+  @@index([checkedInAt])
+}
+
+// Accounting
+model AccountingIncome {
+  id             String   @id @default(cuid())
+  churchId       String
+  church         Church   @relation(fields: [churchId], references: [id])
+  branchId       String?
+  branch         Branch?  @relation(fields: [branchId], references: [id])
+  amount         Float
+  currency       String?
+  type           String // GivingType as string or custom
+  category       String?
+  source         String?
+  date           DateTime
+  description    String?
+  transactionId  String?
+  attachmentUrl  String?
+  attachmentPath String?
+  voidsIncomeId  String?
+  createdBy      String
+  creator        User     @relation(fields: [createdBy], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   // Legacy Firestore data preservation
   firestoreData Json?
+
+  @@index([churchId])
+  @@index([branchId])
+  @@index([date])
+}
+
+model AccountingExpense {
+  id            String   @id @default(cuid())
+  churchId      String
+  church        Church   @relation(fields: [churchId], references: [id])
+  branchId      String?
+  branch        Branch?  @relation(fields: [branchId], references: [id])
+  amount        Float
+  currency      String?
+  category      String
+  payee         String?
+  date          DateTime
+  description   String?
+  transactionId String?
+  status        String   @default("Paid") // "Pending", "Paid", "Cancelled"
+  createdBy     String
+  creator       User     @relation(fields: [createdBy], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
+  @@index([churchId])
+  @@index([branchId])
+  @@index([date])
+}
+
+// Units
+model UnitType {
+  id                   String   @id @default(cuid())
+  churchId             String
+  church               Church   @relation(fields: [churchId], references: [id])
+  name                 String
+  description          String?
+  icon                 String?
+  color                String?
+  allowMultiplePerUser Boolean  @default(false)
+  joinPolicy           String   @default("INVITE_ONLY") // "INVITE_ONLY", "OPEN"
+  creationPolicy       String   @default("ADMIN_ONLY") // "ADMIN_ONLY", "LEADERS", "ANYONE"
+  units                Unit[]
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
+  @@index([churchId])
+}
+
+model Unit {
+  id             String           @id @default(cuid())
+  churchId       String
+  church         Church           @relation(fields: [churchId], references: [id])
+  branchId       String?
+  branch         Branch?          @relation(fields: [branchId], references: [id])
+  typeId         String
+  type           UnitType         @relation(fields: [typeId], references: [id])
+  name           String
+  description    String?
+  leaderId       String?
+  leader         User?            @relation("UnitLeader", fields: [leaderId], references: [id])
+  permissions    Json? // { invitePolicy: "HEAD_ONLY" | "ANY_MEMBER" }
+  members        UnitMembership[]
+  invites        UnitInvite[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  UnitInviteLink UnitInviteLink[]
+  UnitSettings   UnitSettings?
+  UnitMessage    UnitMessage[]
+  UnitPoll       UnitPoll[]
+
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
+  @@index([churchId])
+  @@index([branchId])
+  @@index([typeId])
+}
+
+model UnitMembership {
+  id         String   @id @default(cuid())
+  unitId     String
+  unit       Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  churchId   String?
+  unitTypeId String?
+  role       String   @default("MEMBER") // "LEADER", "MEMBER", "HEAD"
+  joinedAt   DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
+  @@unique([unitId, userId])
+  @@index([unitId])
+  @@index([userId])
+  @@index([churchId])
+}
+
+model UnitInvite {
+  id              String    @id @default(cuid())
+  unitId          String
+  unit            Unit      @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  churchId        String?
+  unitTypeId      String?
+  email           String?
+  invitedUserId   String?
+  invitedByUserId String?
+  role            String    @default("MEMBER")
+  token           String?   @unique
+  expiresAt       DateTime?
+  status          String    @default("PENDING") // "PENDING", "ACCEPTED", "DECLINED", "REVOKED", "EXPIRED"
+  respondedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  // Legacy Firestore data preservation
+  firestoreData Json?
+
+  @@index([unitId])
+  @@index([churchId])
+  @@index([invitedUserId])
+  @@index([token])
+}
+
+// ============ Remaining Firestore → PostgreSQL migration models ============
+
+// Alert rules (from alert_rules collection)
+model AlertRule {
+  id              String    @id @default(cuid())
+  userId          String
+  churchId        String
+  name            String
+  metric          String // meetings | attendance | livestream | engagement | members
+  condition       String // below | above | equals | changes
+  threshold       Float     @default(0)
+  frequency       String    @default("realtime") // realtime | hourly | daily | weekly
+  enabled         Boolean   @default(true)
+  notifyVia       Json? // { email, inApp, push }
+  lastTriggeredAt DateTime?
+  metadata        Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  firestoreData Json?
+
+  @@index([userId])
+  @@index([churchId])
+  @@index([metric])
+}
+
+// Custom church roles (from church_roles collection)
+model ChurchRole {
+  id          String   @id @default(cuid())
+  churchId    String
+  church      Church   @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  key         String?
+  isDefault   Boolean  @default(false)
+  isProtected Boolean  @default(false)
+  order       Int      @default(99)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  firestoreData Json?
+
+  @@index([churchId])
+  @@index([key])
+}
+
+// Password reset tokens (from password_resets collection)
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  firestoreData Json?
+
+  @@index([userId])
+  @@index([token])
+}
+
+// Per-church giving/payment configuration (from giving_config collection)
+model GivingConfig {
+  id             String   @id @default(cuid())
+  churchId       String   @unique
+  church         Church   @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  paymentMethods Json? // { stripe, paystack, flutterwave, bankTransfer }
+  currency       String   @default("NGN")
+  defaultMethod  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  firestoreData Json?
+}
+
+// Subscription payments (from subscription_payments collection)
+model SubscriptionPayment {
+  id               String    @id @default(cuid())
+  reference        String    @unique
+  churchId         String
+  church           Church    @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  planId           String
+  amount           Float
+  currency         String    @default("NGN")
+  status           String    @default("INITIATED") // INITIATED | PAID | APPLIED | FAILED
+  initiatedBy      String
+  authorizationUrl String?
+  transactionId    String?
+  metadata         Json?
+  rawEvent         Json?
+  paidAt           DateTime?
+  appliedAt        DateTime?
+  lastError        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  firestoreData Json?
+
+  @@index([churchId])
+  @@index([planId])
+  @@index([status])
+}
+
+// Subscription promo codes (from subscription_promos collection; doc id = code)
+model SubscriptionPromo {
+  code           String    @id
+  type           String    @default("percentage") // percentage | flat
+  value          Float     @default(0)
+  appliesTo      String    @default("global") // plan | church | global
+  planIds        String[]
+  churchIds      String[]
+  maxRedemptions Int?
+  redeemedCount  Int       @default(0)
+  validFrom      DateTime?
+  validTo        DateTime?
+  notes          String?
+  status         String    @default("active") // active | inactive
+  createdBy      String?
+  updatedBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  firestoreData Json?
+}
+
+// Per-church plan price overrides (from subscription_plan_overrides; id = planId__churchId)
+model SubscriptionPlanOverride {
+  id             String    @id @default(cuid())
+  planId         String
+  churchId       String
+  church         Church    @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  customPrice    Float?
+  customSetupFee Float?
+  promoCode      String?
+  expiresAt      DateTime?
+  notes          String?
+  createdBy      String
+  updatedBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  firestoreData Json?
+
+  @@unique([planId, churchId])
+  @@index([churchId])
+}
+
+// Landing-page plan payments (from landing_plan_payments; doc id = reference)
+model LandingPlanPayment {
+  id               String    @id @default(cuid())
+  reference        String    @unique
+  planId           String
+  planName         String
+  amount           Float
+  currency         String    @default("NGN")
+  fullName         String
+  email            String
+  churchName       String?
+  phone            String?
+  promoCode        String?
+  notes            String?
+  status           String    @default("INITIATED") // INITIATED | PAID | FAILED
+  authorizationUrl String?
+  transactionId    String?
+  rawEvent         Json?
+  paidAt           DateTime?
+  lastError        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  firestoreData Json?
+
+  @@index([status])
+  @@index([planId])
+}
+
+// Pending donations awaiting webhook verification (from pending_donations; doc id = txRef)
+model PendingDonation {
+  id          String    @id @default(cuid())
+  txRef       String    @unique
+  userId      String
+  churchId    String
+  amount      Float
+  currency    String    @default("NGN")
+  type        String
+  projectId   String?
+  notes       String?
+  status      String    @default("pending") // pending | completed | failed
+  flwRef      String?
+  givingId    String?
+  expiresAt   DateTime?
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  firestoreData Json?
+
+  @@index([churchId])
+  @@index([status])
+}
+
+// Webhook idempotency markers (from webhook_events; doc id = transactionKey)
+model WebhookEvent {
+  id             String   @id @default(cuid())
+  transactionKey String   @unique
+  provider       String
+  event          String?
+  txRef          String?
+  transactionId  String?
+  status         String?
+  createdAt      DateTime @default(now())
+
+  firestoreData Json?
+
+  @@index([provider])
+}
+
+// Shareable unit invite links (from unit_invite_links collection)
+model UnitInviteLink {
+  id              String    @id @default(cuid())
+  unitId          String
+  unit            Unit      @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  churchId        String
+  church          Church    @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  token           String    @unique
+  createdByUserId String
+  expiresAt       DateTime?
+  maxUses         Int?
+  currentUses     Int       @default(0)
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  firestoreData Json?
+
+  @@index([unitId])
+  @@index([token])
+}
+
+// Unit chat settings (from unit_settings collection)
+model UnitSettings {
+  id          String   @id @default(cuid())
+  unitId      String   @unique
+  unit        Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  churchId    String
+  allowMedia  Boolean  @default(true)
+  allowPolls  Boolean  @default(true)
+  allowShares Boolean  @default(true)
+  pinnedRules String?
+  rules       Json? // [{ title, description }]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  firestoreData Json?
+
+  @@index([churchId])
+}
+
+// Unit chat messages (from unit_messages collection)
+model UnitMessage {
+  id          String   @id @default(cuid())
+  unitId      String
+  unit        Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  churchId    String
+  userId      String
+  content     String
+  attachments Json?
+  voiceNote   Json?
+  pinned      Boolean  @default(false)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  firestoreData Json?
+
+  @@index([unitId])
+  @@index([churchId])
+  @@index([userId])
+}
+
+// Unit polls (from unit_polls collection)
+model UnitPoll {
+  id              String    @id @default(cuid())
+  unitId          String
+  unit            Unit      @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  churchId        String
+  question        String
+  description     String?
+  options         Json
+  allowMultiple   Boolean   @default(false)
+  allowComments   Boolean   @default(false)
+  status          String    @default("OPEN")
+  createdByUserId String
+  closesAt        DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  votes UnitPollVote[]
+
+  firestoreData Json?
+
+  @@index([unitId])
+  @@index([churchId])
+}
+
+// Unit poll votes (from unit_poll_votes; doc id = pollId-userId)
+model UnitPollVote {
+  id        String   @id @default(cuid())
+  pollId    String
+  poll      UnitPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  unitId    String
+  userId    String
+  optionIds String[]
+  createdAt DateTime @default(now())
+
+  firestoreData Json?
+
+  @@unique([pollId, userId])
+  @@index([unitId])
+}
+
+// Comment likes (from comments/{id}/likes subcollection)
+model CommentLike {
+  id        String   @id @default(cuid())
+  commentId String
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime @default(now())
+
+  firestoreData Json?
+
+  @@unique([commentId, userId])
+  @@index([userId])
+}
+
+// Post share records (from posts/{id}/shares subcollection)
+model PostShare {
+  id             String   @id @default(cuid())
+  postId         String
+  post           Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  churchId       String
+  sharedByUserId String
+  unitIds        String[]
+  note           String?
+  createdAt      DateTime @default(now())
+
+  firestoreData Json?
+
+  @@index([postId])
+  @@index([churchId])
+}
+
+// Google OAuth state tokens (from church_google_oauth_states; doc id = state)
+model ChurchGoogleOauthState {
+  id        String   @id @default(cuid())
+  state     String   @unique
+  churchId  String
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  firestoreData Json?
+
+  @@index([state])
+}
+
+// ============ Digital School ============
+
+model DigitalCourse {
+  id               String   @id @default(cuid())
+  churchId         String
+  church           Church   @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  title            String
+  summary          String?
+  accessType       String   @default("open")
+  mentors          String[]
+  estimatedHours   Float?
+  coverImageUrl    String?
+  tags             String[]
+  status           String   @default("draft")
+  pricing          Json?
+  certificateTheme Json?
+  createdBy        String
+  updatedBy        String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  sections       DigitalCourseSection[]
+  modules        DigitalCourseModule[]
+  lessons        DigitalCourseLesson[]
+  enrollments    DigitalCourseEnrollment[]
+  accessRequests DigitalCourseAccessRequest[]
+  exams          DigitalCourseExam[]
+
+  firestoreData Json?
+
+  @@index([churchId])
+  @@index([status])
+}
+
+model DigitalCourseSection {
+  id             String        @id @default(cuid())
+  courseId       String
+  course         DigitalCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title          String
+  description    String?
+  order          Int           @default(0)
+  estimatedHours Float?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  modules DigitalCourseModule[]
+
+  firestoreData Json?
+
+  @@index([courseId])
+}
+
+model DigitalCourseModule {
+  id               String               @id @default(cuid())
+  courseId         String
+  course           DigitalCourse        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  sectionId        String
+  section          DigitalCourseSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  title            String
+  description      String?
+  order            Int                  @default(0)
+  estimatedMinutes Int?
+  videoUrl         String?
+  audioUrl         String?
+  audioFileName    String?
+  audioStoragePath String?
+  bookUrl          String?
+  bookFileName     String?
+  bookStoragePath  String?
+  contentType      String?
+  textContent      String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  lessons DigitalCourseLesson[]
+
+  firestoreData Json?
+
+  @@index([courseId])
+  @@index([sectionId])
+}
+
+model DigitalCourseLesson {
+  id             String              @id @default(cuid())
+  courseId       String
+  course         DigitalCourse       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  moduleId       String
+  module         DigitalCourseModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  title          String
+  description    String?
+  videoUrl       String?
+  audioUrl       String?
+  attachmentUrls String[]
+  transcript     String?
+  order          Int                 @default(0)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  firestoreData Json?
+
+  @@index([courseId])
+  @@index([moduleId])
+}
+
+model DigitalCourseEnrollment {
+  id                     String        @id @default(cuid())
+  courseId               String
+  course                 DigitalCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  userId                 String
+  user                   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  churchId               String
+  status                 String        @default("active")
+  progressPercent        Float         @default(0)
+  moduleProgress         Json?
+  badgeIssuedAt          DateTime?
+  certificateUrl         String?
+  certificateStoragePath String?
+  certificateIssuedAt    DateTime?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+
+  firestoreData Json?
+
+  @@unique([courseId, userId])
+  @@index([userId])
+  @@index([churchId])
+  @@index([status])
+}
+
+model DigitalCourseAccessRequest {
+  id           String        @id @default(cuid())
+  courseId     String
+  course       DigitalCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reason       String?
+  status       String        @default("pending")
+  reviewerId   String?
+  reviewerNote String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  firestoreData Json?
+
+  @@index([courseId])
+  @@index([userId])
+  @@index([status])
+}
+
+model DigitalCourseExam {
+  id               String        @id @default(cuid())
+  courseId         String
+  course           DigitalCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  sectionId        String
+  moduleId         String?
+  title            String
+  description      String?
+  timeLimitMinutes Int?
+  questionCount    Int           @default(0)
+  status           String        @default("draft")
+  uploadMetadata   Json?
+  retakePolicy     Json?
+  createdBy        String
+  updatedBy        String
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  questions DigitalExamQuestion[]
+  attempts  DigitalExamAttempt[]
+
+  firestoreData Json?
+
+  @@index([courseId])
+  @@index([sectionId])
+}
+
+model DigitalExamQuestion {
+  id              String            @id @default(cuid())
+  examId          String
+  exam            DigitalCourseExam @relation(fields: [examId], references: [id], onDelete: Cascade)
+  courseId        String
+  moduleId        String?
+  question        String
+  options         String[]
+  correctOption   Int
+  explanation     String?
+  weight          Float             @default(1)
+  durationSeconds Int?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  firestoreData Json?
+
+  @@index([examId])
+  @@index([courseId])
+}
+
+model DigitalExamAttempt {
+  id             String            @id @default(cuid())
+  examId         String
+  exam           DigitalCourseExam @relation(fields: [examId], references: [id], onDelete: Cascade)
+  courseId       String
+  userId         String
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status         String            @default("in_progress")
+  score          Float?
+  totalQuestions Int?
+  startedAt      DateTime          @default(now())
+  submittedAt    DateTime?
+  responses      Json?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  firestoreData Json?
+
+  @@index([examId])
+  @@index([userId])
+  @@index([courseId])
+}
+
+// Generic analytics payloads (meeting/livestream analytics, tracked events)
+model AnalyticsRecord {
+  id       String @id @default(cuid())
+  churchId String
+  church   Church @relation(fields: [churchId], references: [id], onDelete: Cascade)
+
+  kind  String // "meeting" | "livestream" | "event"
+  refId String? // underlying entity id (meetingId, livestreamId, eventId)
+  date  DateTime @default(now())
+  data  Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  firestoreData Json?
+
+  @@index([churchId, kind, date])
+  @@index([refId])
+}
+
+// Member engagement point events
+model EngagementEvent {
+  id       String @id @default(cuid())
+  churchId String
+  church   Church @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date     DateTime @default(now())
+  type     String // "message" | "comment" | "reaction" | "donation" | "attendance" | "volunteer"
+  points   Int      @default(0)
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  firestoreData Json?
+
+  @@index([churchId, date])
+  @@index([userId])
 }

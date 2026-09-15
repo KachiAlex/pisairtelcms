@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    let churchId = queryChurchId || dbUser?.churchId || sessionUser.churchId
+    let churchId: string | null = queryChurchId || dbUser?.churchId || sessionUser.churchId || null
     if (!churchId) {
       churchId = await getCurrentChurchId(userId)
     }

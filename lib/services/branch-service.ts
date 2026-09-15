@@ -84,7 +84,7 @@ export class BranchService {
           options?.parentBranchId === undefined
             ? undefined
             : options.parentBranchId,
-        level: options?.level,
+        level: options?.level as any,
       },
       orderBy: { createdAt: 'desc' },
     })
@@ -97,7 +97,7 @@ export class BranchService {
     const record = await prisma.branch.create({
       data: {
         ...rest,
-        level: data.level ?? DEFAULT_BRANCH_LEVEL,
+        level: (data.level ?? DEFAULT_BRANCH_LEVEL) as any,
         parentBranchId: data.parentBranchId ?? undefined,
         isActive: data.isActive ?? true,
         createdAt: new Date(),
@@ -112,6 +112,7 @@ export class BranchService {
       where: { id },
       data: {
         ...data,
+        level: data.level as any,
         updatedAt: new Date(),
       },
     })

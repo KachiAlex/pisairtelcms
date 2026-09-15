@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
  * MLPredictionsDashboard
  * Displays machine learning predictions and forecasting
  */
-export default function MLPredictionsDashboard() {
+export default function MLPredictionsDashboard({ churchId }: { churchId?: string }) {
   return (
     <Card>
       <CardHeader>

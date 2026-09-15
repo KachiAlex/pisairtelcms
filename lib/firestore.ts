@@ -23,22 +23,114 @@ if (!hasServiceAccountEnv) {
   globalForFirebase.firebaseDisabled = true
 }
 
-function createDisabledProxy<T extends object>(feature: string): T {
-  return new Proxy(
-    {},
-    {
-      get() {
-        throw new Error(
-          `Firebase ${feature} is not available. Provide FIREBASE_SERVICE_ACCOUNT_BASE64, FIREBASE_SERVICE_ACCOUNT, or FIREBASE_SERVICE_ACCOUNT_PATH before using Firestore features.`,
-        )
-      },
-      apply() {
-        throw new Error(
-          `Firebase ${feature} is not available. Provide FIREBASE_SERVICE_ACCOUNT_BASE64, FIREBASE_SERVICE_ACCOUNT, or FIREBASE_SERVICE_ACCOUNT_PATH before using Firestore features.`,
-        )
-      },
+// --- Firestore disabled stubs ------------------------------------------------
+// When Firebase credentials are absent, return a stub that yields empty
+// collections/no-op writes instead of throwing 500s across the dashboard.
+function createEmptyQuerySnapshot() {
+  const docs: any[] = []
+  return {
+    docs,
+    empty: true,
+    size: 0,
+    forEach: () => {},
+    docChanges: () => [],
+  }
+}
+
+function createQueryRef(path: string = ''): any {
+  const self: any = () => self
+  self.where = () => self
+  self.orderBy = () => self
+  self.limit = () => self
+  self.offset = () => self
+  self.startAt = () => self
+  self.startAfter = () => self
+  self.endAt = () => self
+  self.endBefore = () => self
+  self.get = async () => createEmptyQuerySnapshot()
+  self.onSnapshot = (_: any) => () => {}
+  self.doc = (sub: string) => createDocRef(path ? `${path}/${sub}` : sub)
+  self.add = async (data: any) => ({ id: 'stub', writeTime: { toDate: () => new Date() } })
+  self.listDocuments = async () => []
+  return self
+}
+
+function createDocRef(path: string): any {
+  const segments = path.split('/')
+  const self: any = {
+    id: segments[segments.length - 1] || '',
+    path,
+  }
+  self.get = async () => ({ exists: false, data: () => null, id: self.id, ref: self })
+  self.set = async () => ({ writeTime: { toDate: () => new Date() } })
+  self.update = async () => ({ writeTime: { toDate: () => new Date() } })
+  self.delete = async () => undefined
+  self.collection = (sub: string) => createQueryRef()
+  self.isEqual = () => true
+  return self
+}
+
+function createBatch(): any {
+  return {
+    set: () => {},
+    update: () => {},
+    delete: () => {},
+    commit: async () => [],
+  }
+}
+
+function createTransaction(): any {
+  const tx: any = {
+    get: async (ref: any) => ref.get(),
+    set: () => {},
+    update: () => {},
+    delete: () => {},
+  }
+  return tx
+}
+
+function createFirestoreStub(): Firestore {
+  const db: any = {
+    settings: () => {},
+    collection: (path: string) => createQueryRef(path),
+    doc: (path: string) => createDocRef(path),
+    collectionGroup: () => createQueryRef(),
+    batch: () => createBatch(),
+    runTransaction: async (callback: any) => {
+      try {
+        return await callback(createTransaction())
+      } catch (e) {
+        console.warn('Disabled Firestore transaction callback failed:', e)
+        return undefined
+      }
     },
-  ) as T
+    getAll: async () => [],
+    listCollections: async () => [],
+    terminate: async () => {},
+  }
+  return db as Firestore
+}
+
+function createStorageStub(): Storage {
+  const bucket = {
+    file: () => ({
+      save: async () => {},
+      delete: async () => {},
+      getSignedUrl: async () => [''],
+      publicUrl: () => '',
+      exists: async () => [false],
+    }),
+    upload: async () => [{
+      name: '',
+      getSignedUrl: async () => [''],
+      publicUrl: () => '',
+    }],
+  }
+  const storage: any = {
+    bucket: () => bucket,
+    app: globalForFirebase.firebaseApp,
+  }
+  return storage as Storage
 }
 
 export function isFirebaseConfigured() {
@@ -165,11 +257,12 @@ export function initFirebase(): Firestore | null {
  */
 export function getFirestoreDB(): Firestore {
   if (!_db) {
-    const result = initFirebase()
-    if (!result) {
-      throw new Error('Failed to initialize Firebase')
+    if (globalForFirebase.firebaseDisabled || !hasServiceAccountEnv) {
+      _db = createFirestoreStub()
+      return _db
     }
-    _db = result
+    const result = initFirebase()
+    _db = result ?? createFirestoreStub()
   }
   return _db
 }
@@ -179,22 +272,20 @@ export function getFirestoreDB(): Firestore {
  */
 export function getFirebaseStorage(): Storage {
   if (!_storage) {
-    initFirebase() // This will initialize storage too
-    if (!_storage) {
-      throw new Error('Firebase Storage not initialized')
+    if (globalForFirebase.firebaseDisabled || !hasServiceAccountEnv) {
+      _storage = createStorageStub()
+      return _storage
     }
+    initFirebase() // This will initialize storage too
+    _storage = _storage ?? createStorageStub()
   }
   return _storage
 }
 
 // Export db and storage - initialized on first access
 // These are wrapped in getters to ensure lazy initialization
-export const db: Firestore = globalForFirebase.firebaseDisabled
-  ? createDisabledProxy<Firestore>('Firestore')
-  : getFirestoreDB()
-export const storage: Storage = globalForFirebase.firebaseDisabled
-  ? createDisabledProxy<Storage>('Storage')
-  : getFirebaseStorage()
+export const db: Firestore = getFirestoreDB()
+export const storage: Storage = getFirebaseStorage()
 
 /**
  * Helper to convert Firestore timestamp to Date

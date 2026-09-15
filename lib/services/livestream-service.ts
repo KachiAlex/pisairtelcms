@@ -231,8 +231,8 @@ export class LivestreamService {
 
       const basePayload = {
         title: livestream.title,
-        description: livestream.description,
-        thumbnail: livestream.thumbnail,
+        description: livestream.description ?? undefined,
+        thumbnail: livestream.thumbnail ?? undefined,
         startAt: livestream.startAt,
       }
 

@@ -1,11 +1,20 @@
 import { NextResponse } from 'next/server'
 import { UserService } from '@/lib/services/user-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { guardApi } from '@/lib/api-guard'
 import { hasPermission } from '@/lib/permissions'
 
 export const dynamic = 'force-dynamic'
+
+async function countByUsers(model: any, field: string, userIds: string[], extra?: any) {
+  if (!userIds.length) return new Map<string, number>()
+  const rows = await model.groupBy({
+    by: [field],
+    where: { [field]: { in: userIds }, ...(extra || {}) },
+    _count: { [field]: true },
+  })
+  return new Map<string, number>(rows.map((r: any) => [r[field], r._count[field]]))
+}
 
 export async function GET() {
   try {
@@ -33,80 +42,89 @@ export async function GET() {
 
     const allUsers = await UserService.findByChurch(church.id)
     const firstTimers = allUsers
-      .filter(user => 
-        user.role === 'VISITOR' && 
+      .filter(user =>
+        user.role === 'VISITOR' &&
         new Date(user.createdAt) >= ninetyDaysAgo
       )
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 
-    // Categorize first-timers
-    const categorized = await Promise.all(
-      firstTimers.map(async (user) => {
-        const daysSinceJoined = Math.floor(
-          (Date.now() - new Date(user.createdAt).getTime()) /
-            (1000 * 60 * 60 * 24)
-        )
+    const userIds = firstTimers.map((u) => u.id)
 
-        // Get counts
-        const [eventsAttended, sermonsWatched, giving, followUps, mentorAssignments] = await Promise.all([
-          db.collection(COLLECTIONS.eventAttendances).where('userId', '==', user.id).count().get(),
-          db.collection(COLLECTIONS.sermonViews).where('userId', '==', user.id).count().get(),
-          db.collection(COLLECTIONS.giving).where('userId', '==', user.id).count().get(),
-          db.collection(COLLECTIONS.followUps).where('userId', '==', user.id).count().get(),
-          db.collection(COLLECTIONS.mentorAssignments)
-            .where('menteeId', '==', user.id)
-            .where('status', '==', 'Active')
-            .get(),
-        ])
+    // Batch all per-user counts — 6 queries total instead of ~5 per user
+    const [eventsAttended, sermonsWatched, giving, followUps, mentorRows] = await Promise.all([
+      countByUsers(prisma.eventAttendance, 'userId', userIds),
+      countByUsers(prisma.sermonView, 'userId', userIds),
+      countByUsers(prisma.giving, 'userId', userIds),
+      countByUsers(prisma.followUp, 'userId', userIds),
+      prisma.mentorAssignment.findMany({
+        where: { menteeId: { in: userIds }, status: 'Active' },
+        select: { menteeId: true, mentorId: true },
+      }),
+    ])
 
-        const hasMentor = mentorAssignments.size > 0
-        const hasActivity =
-          (eventsAttended.data().count || 0) > 0 ||
-          (sermonsWatched.data().count || 0) > 0 ||
-          (giving.data().count || 0) > 0
+    // Batch mentor user lookups — one query for all mentors
+    const mentorIds = [...new Set(mentorRows.map((m) => m.mentorId))]
+    const mentors = mentorIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: mentorIds } },
+          select: { id: true, firstName: true, lastName: true, email: true },
+        })
+      : []
+    const mentorMap = new Map(mentors.map((m) => [m.id, m]))
 
-        // Get mentor info if exists
-        let mentorAssignmentsData = []
-        if (hasMentor) {
-          for (const assignment of mentorAssignments.docs) {
-            const assignmentData = assignment.data()
-            const mentor = await UserService.findById(assignmentData.mentorId)
-            if (mentor) {
-              mentorAssignmentsData.push({
+    const categorized = firstTimers.map((user) => {
+      const daysSinceJoined = Math.floor(
+        (Date.now() - new Date(user.createdAt).getTime()) /
+          (1000 * 60 * 60 * 24)
+      )
+
+      const eventsCount = eventsAttended.get(user.id) || 0
+      const sermonsCount = sermonsWatched.get(user.id) || 0
+      const givingCount = giving.get(user.id) || 0
+      const followUpsCount = followUps.get(user.id) || 0
+
+      const userMentorRows = mentorRows.filter((m) => m.menteeId === user.id)
+      const hasMentor = userMentorRows.length > 0
+      const hasActivity = eventsCount > 0 || sermonsCount > 0 || givingCount > 0
+
+      const mentorAssignmentsData = userMentorRows
+        .map((m) => {
+          const mentor = mentorMap.get(m.mentorId)
+          return mentor
+            ? {
                 mentor: {
                   id: mentor.id,
                   firstName: mentor.firstName,
                   lastName: mentor.lastName,
                   email: mentor.email,
                 },
-              })
-            }
-          }
-        }
+              }
+            : null
+        })
+        .filter(Boolean)
 
-        return {
-          ...user,
-          daysSinceJoined,
-          hasMentor,
-          hasActivity,
-          status:
-            (followUps.data().count || 0) === 0
-              ? 'NEEDS_FOLLOWUP'
-              : hasMentor && hasActivity
-              ? 'ENGAGED'
-              : hasMentor
-              ? 'ASSIGNED'
-              : 'NEW',
-          _count: {
-            eventsAttended: eventsAttended.data().count || 0,
-            sermonsWatched: sermonsWatched.data().count || 0,
-            giving: giving.data().count || 0,
-            followUps: followUps.data().count || 0,
-          },
-          mentorAssignments: mentorAssignmentsData,
-        }
-      })
-    )
+      return {
+        ...user,
+        daysSinceJoined,
+        hasMentor,
+        hasActivity,
+        status:
+          followUpsCount === 0
+            ? 'NEEDS_FOLLOWUP'
+            : hasMentor && hasActivity
+            ? 'ENGAGED'
+            : hasMentor
+            ? 'ASSIGNED'
+            : 'NEW',
+        _count: {
+          eventsAttended: eventsCount,
+          sermonsWatched: sermonsCount,
+          giving: givingCount,
+          followUps: followUpsCount,
+        },
+        mentorAssignments: mentorAssignmentsData,
+      }
+    })
 
     return NextResponse.json({
       firstTimers: categorized,
@@ -126,4 +144,3 @@ export async function GET() {
     )
   }
 }
-

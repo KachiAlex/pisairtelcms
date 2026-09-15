@@ -3,8 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { SalaryService, PayrollPositionService, WageScaleService } from '@/lib/services/payroll-service'
 import { UserService } from '@/lib/services/user-service'
-import { db, FieldValue } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { guardApi } from '@/lib/api-guard'
 
 export async function GET(request: Request) {
@@ -18,15 +17,10 @@ export async function GET(request: Request) {
 
     const { church } = guarded.ctx
 
-    // Get all users in church
-    const allUsers = await UserService.findByChurch(church.id)
-    const targetUserIds = userId ? [userId] : allUsers.map(u => u.id)
-
-    // Get salaries for these users
-    let allSalaries: any[] = []
-    for (const targetUserId of targetUserIds) {
-      const userSalaries = await SalaryService.findByUser(targetUserId)
-      allSalaries.push(...userSalaries.map(s => ({ ...s, userId: targetUserId })))
+    // Get salaries scoped to this church; optionally filter to one user
+    let allSalaries = await SalaryService.findByChurch(church.id)
+    if (userId) {
+      allSalaries = allSalaries.filter(s => s.userId === userId)
     }
 
     // Filter by active if needed
@@ -40,19 +34,15 @@ export async function GET(request: Request) {
         const [user, position, wageScale] = await Promise.all([
           UserService.findById(salary.userId),
           PayrollPositionService.findById(salary.positionId),
-          db.collection(COLLECTIONS.wageScales).doc(salary.wageScaleId).get(),
+          WageScaleService.findById(salary.wageScaleId),
         ])
 
         let department = null
         if (position?.departmentId) {
-          const deptDoc = await db.collection(COLLECTIONS.departments).doc(position.departmentId).get()
-          if (deptDoc.exists) {
-            const deptData = deptDoc.data()!
-            department = {
-              id: deptDoc.id,
-              name: deptData.name,
-            }
-          }
+          department = await prisma.department.findUnique({
+            where: { id: position.departmentId },
+            select: { id: true, name: true },
+          })
         }
 
         return {
@@ -69,7 +59,7 @@ export async function GET(request: Request) {
             ...position,
             department,
           } : null,
-          wageScale: wageScale.exists ? { id: wageScale.id, ...wageScale.data() } : null,
+          wageScale,
         }
       })
     )
@@ -114,9 +104,9 @@ export async function POST(request: Request) {
     }
 
     // Verify position and wage scale belong to church
-    const [position, wageScaleDoc] = await Promise.all([
+    const [position, wageScale] = await Promise.all([
       PayrollPositionService.findById(positionId),
-      db.collection(COLLECTIONS.wageScales).doc(wageScaleId).get(),
+      WageScaleService.findById(wageScaleId),
     ])
 
     if (!position || position.churchId !== church.id) {
@@ -126,23 +116,26 @@ export async function POST(request: Request) {
       )
     }
 
-    if (!wageScaleDoc.exists) {
+    if (!wageScale || wageScale.churchId !== church.id) {
       return NextResponse.json(
         { error: 'Wage scale not found' },
         { status: 404 }
       )
     }
 
-    const wageScale = { id: wageScaleDoc.id, ...wageScaleDoc.data()! }
+    if (wageScale.positionId !== positionId) {
+      return NextResponse.json(
+        { error: 'Wage scale does not belong to the selected position' },
+        { status: 400 }
+      )
+    }
 
     // Deactivate any existing active salary
     const existingSalaries = await SalaryService.findByUser(assignUserId)
+    const endDate = startDate ? new Date(startDate) : new Date()
     for (const existing of existingSalaries) {
       if (!existing.endDate) {
-        await db.collection(COLLECTIONS.salaries).doc(existing.id).update({
-          endDate: startDate ? new Date(startDate) : new Date(),
-          updatedAt: FieldValue.serverTimestamp(),
-        })
+        await SalaryService.update(existing.id, { endDate, isActive: false })
       }
     }
 

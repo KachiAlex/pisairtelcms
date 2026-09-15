@@ -1,69 +1,58 @@
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue, Query } from 'firebase-admin/firestore'
-
-export type AccountingExpenseCategory =
-  | 'Rent'
-  | 'Utilities'
-  | 'Welfare'
-  | 'Transport'
-  | 'Media'
-  | 'Maintenance'
-  | 'Salaries'
-  | 'Missions'
-  | 'Other'
+import { prisma } from '@/lib/prisma'
 
 export interface AccountingExpense {
   id: string
   churchId: string
-  branchId?: string
+  branchId?: string | null
   amount: number
-  currency?: string
-  category: AccountingExpenseCategory | string
-  description?: string
+  currency?: string | null
+  category: string
+  payee?: string | null
+  date: Date
+  /** Alias of `date` kept for legacy callers. */
   expenseDate: Date
+  description?: string | null
+  transactionId?: string | null
+  status?: string
   createdBy: string
   createdAt: Date
   updatedAt: Date
 }
 
+const mapExpense = (record: any): AccountingExpense => ({
+  ...(record as AccountingExpense),
+  expenseDate: record.date,
+})
+
 export class AccountingExpenseService {
   static async findById(id: string): Promise<AccountingExpense | null> {
-    const doc = await db.collection(COLLECTIONS.accountingExpenses).doc(id).get()
-    if (!doc.exists) return null
-
-    const data = doc.data()!
-    return {
-      id: doc.id,
-      ...data,
-      expenseDate: toDate(data.expenseDate),
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as AccountingExpense
+    const record = await prisma.accountingExpense.findUnique({ where: { id } })
+    if (!record) return null
+    return mapExpense(record)
   }
 
   static async create(
-    data: Omit<AccountingExpense, 'id' | 'createdAt' | 'updatedAt'>
-  ): Promise<AccountingExpense> {
-    const expenseData = {
-      ...data,
-      expenseDate: data.expenseDate instanceof Date ? data.expenseDate : new Date(data.expenseDate),
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
+    data: Omit<AccountingExpense, 'id' | 'createdAt' | 'updatedAt' | 'date' | 'expenseDate'> & {
+      date?: Date | string
+      expenseDate?: Date | string
     }
-
-    const docRef = db.collection(COLLECTIONS.accountingExpenses).doc()
-    await docRef.set(expenseData)
-
-    const created = await docRef.get()
-    const createdData = created.data()!
-    return {
-      id: created.id,
-      ...createdData,
-      expenseDate: toDate(createdData.expenseDate),
-      createdAt: toDate(createdData.createdAt),
-      updatedAt: toDate(createdData.updatedAt),
-    } as AccountingExpense
+  ): Promise<AccountingExpense> {
+    const record = await prisma.accountingExpense.create({
+      data: {
+        churchId: data.churchId,
+        branchId: data.branchId ?? null,
+        amount: data.amount,
+        currency: data.currency ?? null,
+        category: data.category,
+        payee: data.payee ?? null,
+        date: new Date((data.date ?? data.expenseDate) as any),
+        description: data.description ?? null,
+        transactionId: data.transactionId ?? null,
+        status: data.status || 'Paid',
+        createdBy: data.createdBy,
+      },
+    })
+    return mapExpense(record)
   }
 
   static async findByChurch(
@@ -75,38 +64,18 @@ export class AccountingExpenseService {
       limit?: number
     }
   ): Promise<AccountingExpense[]> {
-    let query: Query = db.collection(COLLECTIONS.accountingExpenses).where('churchId', '==', churchId)
-
-    if (options?.branchId) {
-      query = query.where('branchId', '==', options.branchId)
-    }
-
-    // NOTE: Avoid orderBy + equality filters to prevent composite index requirements.
-    // Fetch a limited set and sort/filter in-memory.
-    query = query.limit(options?.limit || 200)
-
-    const snapshot = await query.get()
-    let expenses = snapshot.docs.map((doc: any) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        expenseDate: toDate(data.expenseDate),
-        createdAt: toDate(data.createdAt),
-        updatedAt: toDate(data.updatedAt),
-      } as AccountingExpense
+    const records = await prisma.accountingExpense.findMany({
+      where: {
+        churchId,
+        branchId: options?.branchId ?? undefined,
+        date: {
+          gte: options?.startDate,
+          lte: options?.endDate,
+        },
+      },
+      take: options?.limit || 200,
+      orderBy: { date: 'desc' },
     })
-
-    if (options?.startDate) {
-      expenses = expenses.filter((e) => e.expenseDate >= options.startDate!)
-    }
-
-    if (options?.endDate) {
-      expenses = expenses.filter((e) => e.expenseDate <= options.endDate!)
-    }
-
-    expenses = expenses.sort((a, b) => b.expenseDate.getTime() - a.expenseDate.getTime())
-
-    return expenses
+    return records.map(mapExpense)
   }
 }

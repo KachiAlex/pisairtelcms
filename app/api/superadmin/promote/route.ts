@@ -5,8 +5,6 @@ export const dynamic = 'force-dynamic'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { UserService } from '@/lib/services/user-service'
-import { db, FieldValue } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
 
 /**
  * Promote Existing User to Superadmin
@@ -68,10 +66,7 @@ export async function POST(request: Request) {
     }
 
     // Update user role to SUPER_ADMIN
-    await db.collection(COLLECTIONS.users).doc(user.id).update({
-      role: 'SUPER_ADMIN',
-      updatedAt: FieldValue.serverTimestamp(),
-    })
+    await UserService.update(user.id, { role: 'SUPER_ADMIN' } as any)
 
     const updatedUser = await UserService.findById(user.id)
 

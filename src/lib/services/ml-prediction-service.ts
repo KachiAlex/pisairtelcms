@@ -128,7 +128,7 @@ class MLPredictionService {
       // Get historical events for this church
       const historicalEvents = await DataAggregationService.getHistoricalEvents(
         churchId,
-        daysBack: 365
+        365
       )
 
       if (!historicalEvents || historicalEvents.length < this.MIN_DATA_POINTS) {

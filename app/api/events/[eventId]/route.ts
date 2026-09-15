@@ -5,8 +5,6 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { EventService } from '@/lib/services/event-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
 import { EventReminderService } from '@/lib/services/event-reminder-service'
 
 const normalizeReminderConfig = (config?: {
@@ -159,8 +157,8 @@ export async function DELETE(
       return NextResponse.json({ error: 'Event not found' }, { status: 404 })
     }
 
-    // Delete the event
-    await db.collection(COLLECTIONS.events).doc(eventId).delete()
+    // Delete the event (cascades registrations, attendances, reminders)
+    await EventService.delete(eventId)
 
     return NextResponse.json({ success: true, message: 'Event deleted successfully' })
   } catch (error: any) {

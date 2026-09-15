@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
+import { getCurrentChurchId } from '@/lib/church-context'
 import { RecommendationService } from '@/lib/services/recommendation-service'
 
 /**
@@ -38,9 +39,13 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { eventType, dayOfWeek, timeOfDay, historicalEvents, specialFactors } = body
 
+    const churchId = await getCurrentChurchId(session.user.id)
+    if (!churchId)
+      return NextResponse.json({ error: 'No church context' }, { status: 400 })
+
     // If no historical events provided, return prediction based on request
     const prediction = await RecommendationService.predictEventAttendance(
-      session.user.churchId,
+      churchId,
       {
         eventType: eventType || 'service',
         dayOfWeek: dayOfWeek || 'Sunday',

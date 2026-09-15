@@ -6,13 +6,12 @@ import { GivingService, ProjectService } from '@/lib/services/giving-service'
 import { UserService } from '@/lib/services/user-service'
 import { ReceiptService } from '@/lib/services/receipt-service'
 import { EmailService } from '@/lib/services/email-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
-    
+
     // Flutterwave redirects with transaction_id and status
     // Some configurations might use txRef or other identifiers
     const transactionId = searchParams.get('transaction_id') || searchParams.get('id')
@@ -28,22 +27,23 @@ export async function GET(request: Request) {
     // If we have txRef from our pending donations, use that
     let paymentData
     let pendingData
-    
+    let pendingTxRef: string | undefined
+
     if (txRef) {
       // Get pending donation details from txRef
-      const pendingDoc = await db
-        .collection(COLLECTIONS.pendingDonations)
-        .doc(txRef)
-        .get()
+      const pending = await prisma.pendingDonation.findUnique({
+        where: { txRef },
+      })
 
-      if (!pendingDoc.exists) {
+      if (!pending) {
         return NextResponse.redirect(
           new URL('/giving?error=donation_not_found', request.url)
         )
       }
 
-      pendingData = pendingDoc.data() as any
-      
+      pendingData = pending as any
+      pendingTxRef = pending.txRef
+
       // Verify transaction status with Flutterwave
       if (pendingData.flwRef) {
         const verification = await FlutterwaveService.verifyPayment(pendingData.flwRef)
@@ -77,13 +77,13 @@ export async function GET(request: Request) {
 
       // Get pending donation details from txRef in payment data
       if (paymentData.txRef) {
-        const pendingDoc = await db
-          .collection(COLLECTIONS.pendingDonations)
-          .doc(paymentData.txRef)
-          .get()
+        const pending = await prisma.pendingDonation.findUnique({
+          where: { txRef: paymentData.txRef },
+        })
 
-        if (pendingDoc.exists) {
-          pendingData = pendingDoc.data() as any
+        if (pending) {
+          pendingData = pending as any
+          pendingTxRef = pending.txRef
         }
       }
     }
@@ -110,10 +110,11 @@ export async function GET(request: Request) {
 
     // Get user and church
     const user = await UserService.findById(userId)
-    const churchRef = db.collection(COLLECTIONS.churches).doc(churchId)
-    const churchDoc = await churchRef.get()
-    const churchData = churchDoc.exists ? { id: churchDoc.id, ...churchDoc.data() } : { id: churchId }
-    const church = churchData as any
+    const churchRecord = await prisma.church.findUnique({
+      where: { id: churchId },
+      select: { id: true, name: true },
+    })
+    const church = churchRecord || ({ id: churchId } as any)
 
     let project = null
     if (projectId) {
@@ -177,15 +178,15 @@ export async function GET(request: Request) {
     }
 
     // Mark pending donation as processed
-    if (pendingData.txRef) {
-      await db
-        .collection(COLLECTIONS.pendingDonations)
-        .doc(pendingData.txRef)
-        .update({
+    if (pendingTxRef) {
+      await prisma.pendingDonation.update({
+        where: { txRef: pendingTxRef },
+        data: {
           status: 'completed',
           givingId: giving.id,
           processedAt: new Date(),
-        })
+        },
+      })
     }
 
     // Redirect to success page

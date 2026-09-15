@@ -3,8 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { PayrollPositionService, WageScaleService, SalaryService } from '@/lib/services/payroll-service'
 import { UserService } from '@/lib/services/user-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { guardApi } from '@/lib/api-guard'
 
 export async function GET(
@@ -30,27 +29,22 @@ export async function GET(
     // Get department
     let department = null
     if (position.departmentId) {
-      const deptDoc = await db.collection(COLLECTIONS.departments).doc(position.departmentId).get()
-      if (deptDoc.exists) {
-        department = { id: deptDoc.id, ...deptDoc.data() }
-      }
+      department = await prisma.department.findUnique({
+        where: { id: position.departmentId },
+      })
     }
 
     // Get wage scales
     const wageScales = await WageScaleService.findByChurch(church.id, positionId)
 
     // Get active salaries
-    const salariesSnapshot = await db.collection(COLLECTIONS.salaries)
-      .where('positionId', '==', positionId)
-      .get()
+    const salaries = await SalaryService.findByPosition(positionId)
 
     const userSalaries = await Promise.all(
-      salariesSnapshot.docs.map(async (doc: any) => {
-        const salaryData = doc.data()
-        const user = await UserService.findById(salaryData.userId)
+      salaries.map(async (salary) => {
+        const user = await UserService.findById(salary.userId)
         return {
-          ...salaryData,
-          id: doc.id,
+          ...salary,
           user: user ? {
             id: user.id,
             firstName: user.firstName,
@@ -101,10 +95,9 @@ export async function PUT(
     // Get department
     let department = null
     if (position.departmentId) {
-      const deptDoc = await db.collection(COLLECTIONS.departments).doc(position.departmentId).get()
-      if (deptDoc.exists) {
-        department = { id: deptDoc.id, ...deptDoc.data() }
-      }
+      department = await prisma.department.findUnique({
+        where: { id: position.departmentId },
+      })
     }
 
     return NextResponse.json({
@@ -131,12 +124,18 @@ export async function DELETE(
 
     const { church } = guarded.ctx
 
-    // Check if position has active salaries
-    const salariesSnapshot = await db.collection(COLLECTIONS.salaries)
-      .where('positionId', '==', positionId)
-      .get()
+    // Verify position belongs to church
+    const position = await PayrollPositionService.findById(positionId)
+    if (!position || position.churchId !== church.id) {
+      return NextResponse.json(
+        { error: 'Position not found' },
+        { status: 404 }
+      )
+    }
 
-    const activeSalaries = salariesSnapshot.docs.filter((doc: any) => !doc.data().endDate)
+    // Check if position has active salaries
+    const salaries = await SalaryService.findByPosition(positionId)
+    const activeSalaries = salaries.filter((s) => !s.endDate)
 
     if (activeSalaries.length > 0) {
       return NextResponse.json(
@@ -145,7 +144,7 @@ export async function DELETE(
       )
     }
 
-    await db.collection(COLLECTIONS.payrollPositions).doc(positionId).delete()
+    await PayrollPositionService.delete(positionId)
 
     return NextResponse.json({ success: true })
   } catch (error: any) {

@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { ChurchService } from '@/lib/services/church-service'
 import { SubscriptionService, SubscriptionPlanService } from '@/lib/services/subscription-service'
-import { db, FieldValue } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { guardApi } from '@/lib/api-guard'
 import { getPlanConfig, recommendPlan } from '@/lib/licensing/plans'
 import { UserService } from '@/lib/services/user-service'
@@ -40,24 +39,31 @@ export async function GET(
     }
     const availablePlans = await SubscriptionPlanService.findAll()
 
-    // Get user count
-    const usersSnapshot = await db.collection(COLLECTIONS.users)
-      .where('churchId', '==', churchId)
-      .get()
-    const userCount = usersSnapshot.size
+    // Get user count and tenant admins
+    const churchUsers = await prisma.user.findMany({
+      where: { churchId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        role: true,
+        branchId: true,
+        createdAt: true,
+        updatedAt: true,
+        lastLoginAt: true,
+      },
+    })
+    const userCount = churchUsers.length
     const adminRoles = ['ADMIN', 'PASTOR']
-    const tenantAdmins = usersSnapshot.docs
-      .map((doc) => {
-        const data = doc.data()
-        const { password: _password, ...rest } = data
-        return {
-          id: doc.id,
-          ...rest,
-          createdAt: serializeDate(data.createdAt),
-          updatedAt: serializeDate(data.updatedAt),
-          lastLoginAt: serializeDate(data.lastLoginAt),
-        }
-      })
+    const tenantAdmins = churchUsers
+      .map((user) => ({
+        ...user,
+        createdAt: serializeDate(user.createdAt),
+        updatedAt: serializeDate(user.updatedAt),
+        lastLoginAt: serializeDate(user.lastLoginAt),
+      }))
       .filter((user: any) => adminRoles.includes(user.role))
 
     const planOverrides = await SubscriptionPricingService.listOverridesForChurch(churchId)
@@ -164,10 +170,9 @@ export async function PUT(
         const newEndDate = new Date(currentEndDate)
         newEndDate.setDate(newEndDate.getDate() + daysToAdd)
 
-        await db.collection(COLLECTIONS.subscriptions).doc(subscription.id).update({
+        await SubscriptionService.update(subscription.id, {
           trialEndsAt: newEndDate,
           endDate: newEndDate,
-          updatedAt: FieldValue.serverTimestamp(),
         })
 
         const updatedSub = await SubscriptionService.findByChurch(churchId)
@@ -200,10 +205,7 @@ export async function PUT(
         }
 
         // Update plan
-        await db.collection(COLLECTIONS.subscriptions).doc(currentSub.id).update({
-          planId,
-          updatedAt: FieldValue.serverTimestamp(),
-        })
+        await SubscriptionService.update(currentSub.id, { planId })
 
         const updatedSubscription = await SubscriptionService.findByChurch(churchId)
         return NextResponse.json({
@@ -230,10 +232,7 @@ export async function PUT(
           )
         }
 
-        await db.collection(COLLECTIONS.subscriptions).doc(sub.id).update({
-          status,
-          updatedAt: FieldValue.serverTimestamp(),
-        })
+        await SubscriptionService.update(sub.id, { status: status as any })
 
         const updated = await SubscriptionService.findByChurch(churchId)
         return NextResponse.json({
@@ -325,10 +324,7 @@ export async function DELETE(
 
     if (subscription) {
       // Suspend subscription instead of deleting
-      await db.collection(COLLECTIONS.subscriptions).doc(subscription.id).update({
-        status: 'SUSPENDED',
-        updatedAt: FieldValue.serverTimestamp(),
-      })
+      await SubscriptionService.update(subscription.id, { status: 'SUSPENDED' as any })
     }
 
     return NextResponse.json({

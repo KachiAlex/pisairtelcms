@@ -1,47 +1,23 @@
 // Multi-Platform Streaming Types
+// Enums re-exported from Prisma so service-layer types stay unified
+// (identical member sets in schema.prisma)
 
-export enum StreamingPlatform {
-  RESTREAM = 'RESTREAM',
-  ZOOM = 'ZOOM',
-  GOOGLE_MEET = 'GOOGLE_MEET',
-  TEAMS = 'TEAMS',
-  JITSI = 'JITSI',
-  INSTAGRAM = 'INSTAGRAM',
-  YOUTUBE = 'YOUTUBE',
-  FACEBOOK = 'FACEBOOK',
-}
+import {
+  StreamingPlatform,
+  PlatformConnectionStatus,
+  MeetingStatus,
+  MeetingPlatformStatus,
+  LivestreamStatus,
+  LivestreamPlatformStatus,
+} from '@prisma/client'
 
-export enum PlatformConnectionStatus {
-  CONNECTED = 'CONNECTED',
-  DISCONNECTED = 'DISCONNECTED',
-  EXPIRED = 'EXPIRED',
-  ERROR = 'ERROR',
-}
-
-export enum MeetingStatus {
-  SCHEDULED = 'SCHEDULED',
-  ACTIVE = 'ACTIVE',
-  ENDED = 'ENDED',
-}
-
-export enum MeetingPlatformStatus {
-  PENDING = 'PENDING',
-  ACTIVE = 'ACTIVE',
-  ENDED = 'ENDED',
-  FAILED = 'FAILED',
-}
-
-export enum LivestreamStatus {
-  SCHEDULED = 'SCHEDULED',
-  LIVE = 'LIVE',
-  ENDED = 'ENDED',
-}
-
-export enum LivestreamPlatformStatus {
-  PENDING = 'PENDING',
-  LIVE = 'LIVE',
-  ENDED = 'ENDED',
-  FAILED = 'FAILED',
+export {
+  StreamingPlatform,
+  PlatformConnectionStatus,
+  MeetingStatus,
+  MeetingPlatformStatus,
+  LivestreamStatus,
+  LivestreamPlatformStatus,
 }
 
 export interface PlatformCredentials {
@@ -101,6 +77,19 @@ export interface LivestreamPlatformData {
   settings?: LivestreamPlatformSettings
 }
 
+export interface MeetingPlatformData {
+  id: string
+  meetingId: string
+  platform: StreamingPlatform
+  platformMeetingId?: string | null
+  url?: string | null
+  status: MeetingPlatformStatus
+  error?: string | null
+  settings?: unknown
+  createdAt: Date
+  updatedAt: Date
+}
+
 export interface MeetingData {
   id: string
   churchId: string
@@ -113,4 +102,5 @@ export interface MeetingData {
   createdBy: string
   createdAt: Date
   updatedAt: Date
+  platforms?: MeetingPlatformData[]
 }

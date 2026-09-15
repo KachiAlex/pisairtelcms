@@ -34,13 +34,17 @@ export async function POST(request: Request, { params }: { params: { unitId: str
   }
 
   // For single-membership unit types, prevent inviting someone already in another unit of this type.
-  const unitType = await UnitTypeService.findById(unit.unitTypeId)
+  const unitTypeId = unit.unitTypeId || unit.typeId
+  if (!unitTypeId) {
+    return NextResponse.json({ error: 'Invalid unit type' }, { status: 400 })
+  }
+  const unitType = await UnitTypeService.findById(unitTypeId)
   if (!unitType || unitType.churchId !== church!.id) {
     return NextResponse.json({ error: 'Invalid unit type' }, { status: 400 })
   }
 
   if (!unitType.allowMultiplePerUser) {
-    const existing = await UnitMembershipService.findByUserAndUnitType(invitedUserId, unit.unitTypeId)
+    const existing = await UnitMembershipService.findByUserAndUnitType(invitedUserId, unitTypeId)
     if (existing.length > 0) {
       return NextResponse.json({ error: 'User is already a member of this unit type' }, { status: 409 })
     }
@@ -55,7 +59,7 @@ export async function POST(request: Request, { params }: { params: { unitId: str
   const created = await UnitInviteService.create({
     churchId: church!.id,
     unitId: unit.id,
-    unitTypeId: unit.unitTypeId,
+    unitTypeId,
     invitedUserId,
     invitedByUserId: userId,
   })

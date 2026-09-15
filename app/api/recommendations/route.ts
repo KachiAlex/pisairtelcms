@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
+import { getCurrentChurchId } from '@/lib/church-context'
 import { RecommendationService } from '@/lib/services/recommendation-service'
 
 /**
@@ -14,10 +15,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const status = request.nextUrl.searchParams.get('status') as any
+    const churchId = await getCurrentChurchId(session.user.id)
+    if (!churchId)
+      return NextResponse.json({ error: 'No church context' }, { status: 400 })
 
     const recommendations = await RecommendationService.getRecommendations(
       session.user.id,
-      session.user.churchId,
+      churchId,
       status
     )
 
@@ -42,10 +46,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const body = await request.json()
+    const churchId = await getCurrentChurchId(session.user.id)
+    if (!churchId)
+      return NextResponse.json({ error: 'No church context' }, { status: 400 })
 
     const recommendation = await RecommendationService.createRecommendation(
       session.user.id,
-      session.user.churchId,
+      churchId,
       body
     )
 

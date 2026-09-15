@@ -4,8 +4,6 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { SubscriptionService } from '@/lib/services/subscription-service'
-import { db, FieldValue } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
 
 export async function POST(
   request: Request,
@@ -41,11 +39,10 @@ export async function POST(
     newEndDate.setDate(newEndDate.getDate() + days)
 
     // Update subscription
-    await db.collection(COLLECTIONS.subscriptions).doc(subscription.id).update({
+    await SubscriptionService.update(subscription.id, {
       trialEndsAt: newEndDate,
       endDate: newEndDate,
-      status: subscription.status === 'EXPIRED' ? 'TRIAL' : subscription.status,
-      updatedAt: FieldValue.serverTimestamp(),
+      status: (subscription.status === 'EXPIRED' ? 'TRIAL' : subscription.status) as any,
     })
 
     const updated = await SubscriptionService.findByChurch(churchId)

@@ -127,7 +127,7 @@ async function ensureUserRecord(
   const fallbackEmail = fallbackUser?.email?.trim().toLowerCase()
 
   if (!resolvedUserId && fallbackEmail) {
-    remoteUser = await UserService.findByEmail(fallbackUser.email).catch(() => null)
+    remoteUser = await UserService.findByEmail(fallbackEmail).catch(() => null)
     if (remoteUser) {
       resolvedUserId = remoteUser.id
     }

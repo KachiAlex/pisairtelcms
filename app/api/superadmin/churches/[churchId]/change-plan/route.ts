@@ -4,8 +4,6 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { SubscriptionService, SubscriptionPlanService } from '@/lib/services/subscription-service'
-import { db, FieldValue } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
 
 export async function POST(
   request: Request,
@@ -49,10 +47,7 @@ export async function POST(
     }
 
     // Update plan
-    await db.collection(COLLECTIONS.subscriptions).doc(subscription.id).update({
-      planId,
-      updatedAt: FieldValue.serverTimestamp(),
-    })
+    await SubscriptionService.update(subscription.id, { planId })
 
     const updated = await SubscriptionService.findByChurch(churchId)
 

@@ -109,5 +109,14 @@ export class EventService {
     })
     return fromPrisma(record)
   }
+
+  static async delete(id: string): Promise<void> {
+    await prisma.$transaction([
+      prisma.eventReminder.deleteMany({ where: { eventId: id } }),
+      prisma.eventRegistration.deleteMany({ where: { eventId: id } }),
+      prisma.eventAttendance.deleteMany({ where: { eventId: id } }),
+      prisma.event.delete({ where: { id } }),
+    ])
+  }
 }
 

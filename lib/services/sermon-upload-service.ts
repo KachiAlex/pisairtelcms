@@ -1,4 +1,4 @@
-import { storage } from '@/lib/firestore'
+import { StorageService } from '@/lib/services/storage-service'
 import { v4 as uuidv4 } from 'uuid'
 
 export interface MediaUploadOptions {
@@ -9,38 +9,24 @@ export interface MediaUploadOptions {
 
 export class SermonUploadService {
   /**
-   * Upload a media file to Firebase Storage
+   * Upload a media file to local storage (served via /api/files/...)
    */
   static async uploadMedia(options: MediaUploadOptions): Promise<string> {
     const { file, churchId, type } = options
-    
+
     // Generate unique filename
     const fileExtension = file.name.split('.').pop()
     const fileName = `${uuidv4()}.${fileExtension}`
-    const filePath = `sermons/${churchId}/${type}/${fileName}`
 
-    // Get bucket
-    const bucket = storage.bucket()
-    const fileUpload = bucket.file(filePath)
-
-    // Convert File to Buffer (for Node.js)
-    const buffer = Buffer.from(await file.arrayBuffer())
-
-    // Upload file
-    await fileUpload.save(buffer, {
-      metadata: {
-        contentType: file.type,
-        metadata: {
-          firebaseStorageDownloadTokens: uuidv4(), // For public access
-        },
-      },
+    const result = await StorageService.uploadFile({
+      file,
+      fileName,
+      folder: `sermons/${churchId}/${type}`,
+      churchId,
+      contentType: file.type,
     })
 
-    // Make file publicly accessible
-    await fileUpload.makePublic()
-
-    // Return public URL
-    return `https://storage.googleapis.com/${bucket.name}/${filePath}`
+    return result.url
   }
 
   /**

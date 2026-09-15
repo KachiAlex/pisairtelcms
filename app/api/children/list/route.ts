@@ -6,10 +6,9 @@ import { authOptions } from '@/lib/auth-options'
 import { getCurrentChurch } from '@/lib/church-context'
 import { UserService } from '@/lib/services/user-service'
 import { ChildrenCheckInService } from '@/lib/services/children-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions)
     if (!session) {
@@ -17,6 +16,7 @@ export async function GET() {
     }
 
     const userId = (session.user as any).id
+    const userRole = (session.user as any).role
     const church = await getCurrentChurch(userId)
 
     if (!church) {
@@ -26,10 +26,26 @@ export async function GET() {
       )
     }
 
-    // Get user's children
-    const allUsers = await UserService.findByChurch(church.id)
-    const children = allUsers
-      .filter(user => user.parentId === userId)
+    // Privileged users may view another member's children via ?parentId=
+    const { searchParams } = new URL(request.url)
+    const requestedParentId = searchParams.get('parentId')
+    let parentId = userId
+    if (requestedParentId && requestedParentId !== userId) {
+      if (!['ADMIN', 'SUPER_ADMIN', 'PASTOR', 'BRANCH_ADMIN', 'LEADER'].includes(userRole)) {
+        return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
+      }
+      const parent = await UserService.findById(requestedParentId)
+      if (!parent || parent.churchId !== church.id) {
+        return NextResponse.json({ error: 'Parent not found' }, { status: 404 })
+      }
+      parentId = requestedParentId
+    }
+
+    // Get user's children (queried directly by parentId)
+    const { users: childrenResult } = await UserService.queryByChurch(church.id, {
+      parentId,
+    })
+    const children = childrenResult
       .sort((a, b) => a.firstName.localeCompare(b.firstName))
 
     // Get current check-in status and counts for each child
@@ -39,9 +55,9 @@ export async function GET() {
 
         // Get counts
         const [checkInsCount, readingPlansCount, badgesCount] = await Promise.all([
-          db.collection(COLLECTIONS.childrenCheckIns).where('childId', '==', child.id).count().get(),
-          db.collection(COLLECTIONS.readingPlanProgress).where('userId', '==', child.id).count().get(),
-          db.collection(COLLECTIONS.userBadges).where('userId', '==', child.id).count().get(),
+          prisma.childrenCheckIn.count({ where: { childId: child.id } }),
+          prisma.readingPlanProgress.count({ where: { userId: child.id } }),
+          prisma.userBadge.count({ where: { userId: child.id } }),
         ])
 
         return {
@@ -60,9 +76,9 @@ export async function GET() {
             qrCode: activeCheckIn.qrCode,
           } : null,
           _count: {
-            childrenCheckIns: checkInsCount.data().count || 0,
-            readingPlans: readingPlansCount.data().count || 0,
-            badges: badgesCount.data().count || 0,
+            childrenCheckIns: checkInsCount,
+            readingPlans: readingPlansCount,
+            badges: badgesCount,
           },
         }
       })

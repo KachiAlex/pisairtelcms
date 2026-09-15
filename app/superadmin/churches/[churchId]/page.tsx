@@ -3,9 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { ChurchService } from '@/lib/services/church-service'
 import { UserService } from '@/lib/services/user-service'
-import { SubscriptionPlanService, Subscription } from '@/lib/services/subscription-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { SubscriptionPlanService, Subscription, SubscriptionService } from '@/lib/services/subscription-service'
+import { prisma } from '@/lib/prisma'
 import Link from 'next/link'
 import LicenseManagerWrapper from '@/components/superadmin/LicenseManagerWrapper'
 import UsageStats from '@/components/superadmin/UsageStats'
@@ -46,22 +45,10 @@ export default async function ChurchDetailPage({
   const owner = church.ownerId ? await UserService.findById(church.ownerId) : null
 
   // Get users count
-  const usersSnapshot = await db.collection(COLLECTIONS.users)
-    .where('churchId', '==', church.id)
-    .get()
-  const userCount = usersSnapshot.size
+  const userCount = await prisma.user.count({ where: { churchId: church.id } })
 
   // Get subscription
-  const subscriptionSnapshot = await db.collection(COLLECTIONS.subscriptions)
-    .where('churchId', '==', church.id)
-    .limit(1)
-    .get()
-  const subscription = subscriptionSnapshot.empty
-    ? null
-    : ({
-        ...subscriptionSnapshot.docs[0].data(),
-        id: subscriptionSnapshot.docs[0].id,
-      } as Subscription | null)
+  const subscription = await SubscriptionService.findByChurch(church.id)
 
   // Get plan if subscription exists
   let plan = null

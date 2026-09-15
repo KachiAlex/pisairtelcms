@@ -5,8 +5,7 @@ import { guardApi } from '@/lib/api-guard'
 import { UnitService } from '@/lib/services/unit-service'
 import { UserService } from '@/lib/services/user-service'
 import { ChurchService } from '@/lib/services/church-service'
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 export async function GET(_: Request, { params }: { params: { token: string } }) {
   const guarded = await guardApi()
@@ -14,22 +13,16 @@ export async function GET(_: Request, { params }: { params: { token: string } })
 
   try {
     // Find the invite link by token
-    const inviteLinkQuery = await db
-      .collection(COLLECTIONS.unitInviteLinks)
-      .where('token', '==', params.token)
-      .where('active', '==', true)
-      .limit(1)
-      .get()
+    const inviteLink = await prisma.unitInviteLink.findFirst({
+      where: { token: params.token, active: true },
+    })
 
-    if (inviteLinkQuery.empty) {
+    if (!inviteLink) {
       return NextResponse.json({ error: 'Invite link not found or expired' }, { status: 404 })
     }
 
-    const inviteLinkDoc = inviteLinkQuery.docs[0]
-    const inviteLink = inviteLinkDoc.data()
-
     // Check if expired
-    if (inviteLink.expiresAt && toDate(inviteLink.expiresAt) < new Date()) {
+    if (inviteLink.expiresAt && inviteLink.expiresAt < new Date()) {
       return NextResponse.json({ error: 'Invite link has expired' }, { status: 410 })
     }
 

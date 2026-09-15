@@ -2,8 +2,7 @@
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { UserService } from '@/lib/services/user-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 /**
  * Create Superadmin Account
@@ -46,12 +45,12 @@ export async function POST(request: Request) {
     }
 
     // Check if superadmin already exists
-    const superAdminSnapshot = await db.collection(COLLECTIONS.users)
-      .where('role', '==', 'SUPER_ADMIN')
-      .limit(1)
-      .get()
+    const superAdmin = await prisma.user.findFirst({
+      where: { role: 'SUPER_ADMIN' },
+      select: { id: true },
+    })
 
-    if (!superAdminSnapshot.empty) {
+    if (superAdmin) {
       return NextResponse.json(
         { 
           error: 'Superadmin already exists. Use /api/superadmin/promote to promote an existing user.',

@@ -1,7 +1,4 @@
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { Query } from 'firebase-admin/firestore'
-import { FieldValue } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
 
 export interface VolunteerShift {
   id: string
@@ -28,129 +25,97 @@ export interface Task {
   updatedAt: Date
 }
 
+function shiftFromPrisma(record: any): VolunteerShift {
+  return {
+    id: record.id,
+    userId: record.userId,
+    departmentId: record.departmentId ?? undefined,
+    role: record.role ?? '',
+    startTime: record.startTime,
+    endTime: record.endTime ?? undefined,
+    status: record.status ?? 'Scheduled',
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt ?? record.createdAt,
+  }
+}
+
+function taskFromPrisma(record: any): Task {
+  return {
+    id: record.id,
+    userId: record.userId,
+    title: record.title,
+    description: record.description ?? undefined,
+    departmentId: record.departmentId ?? undefined,
+    dueDate: record.dueDate ?? undefined,
+    priority: record.priority ?? 'Medium',
+    status: record.status ?? 'Pending',
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  }
+}
+
 export class VolunteerShiftService {
   static async findByChurch(churchId: string, startDate?: Date, endDate?: Date): Promise<VolunteerShift[]> {
-    // Get all users in church
-    const usersSnapshot = await db.collection(COLLECTIONS.users)
-      .where('churchId', '==', churchId)
-      .get()
-    const userIds = usersSnapshot.docs.map((doc: any) => doc.id)
-
-    if (userIds.length === 0) return []
-
-    // Get shifts for these users
-    let allShifts: VolunteerShift[] = []
-    for (const userId of userIds) {
-      let query: Query = db.collection(COLLECTIONS.volunteerShifts)
-        .where('userId', '==', userId)
-      
-      if (startDate) {
-        query = query.where('startTime', '>=', startDate)
-      }
-      if (endDate) {
-        query = query.where('startTime', '<=', endDate)
-      }
-
-      const snapshot = await query.orderBy('startTime', 'asc').get()
-      const shifts = snapshot.docs.map((doc: any) => {
-        const data = doc.data()
-        return {
-          id: doc.id,
-          ...data,
-          startTime: toDate(data.startTime),
-          endTime: data.endTime ? toDate(data.endTime) : undefined,
-          createdAt: toDate(data.createdAt),
-          updatedAt: toDate(data.updatedAt),
-        } as VolunteerShift
-      })
-      allShifts.push(...shifts)
-    }
-
-    return allShifts.sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
+    // Single query via the user relation — no per-user loop
+    const records = await prisma.volunteerShift.findMany({
+      where: {
+        user: { churchId },
+        ...(startDate ? { startTime: { gte: startDate } } : {}),
+        ...(endDate ? { startTime: { lte: endDate } } : {}),
+      },
+      orderBy: { startTime: 'asc' },
+    })
+    return records.map(shiftFromPrisma)
   }
 
   static async create(data: Omit<VolunteerShift, 'id' | 'createdAt' | 'updatedAt'>): Promise<VolunteerShift> {
-    const shiftData = {
-      ...data,
-      startTime: data.startTime instanceof Date ? data.startTime : new Date(data.startTime),
-      endTime: data.endTime ? (data.endTime instanceof Date ? data.endTime : new Date(data.endTime)) : null,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    const docRef = db.collection(COLLECTIONS.volunteerShifts).doc()
-    await docRef.set(shiftData)
-
-    const created = await docRef.get()
-    const createdData = created.data()!
-    return {
-      id: created.id,
-      ...createdData,
-      startTime: toDate(createdData.startTime),
-      endTime: createdData.endTime ? toDate(createdData.endTime) : undefined,
-      createdAt: toDate(createdData.createdAt),
-      updatedAt: toDate(createdData.updatedAt),
-    } as VolunteerShift
+    const record = await prisma.volunteerShift.create({
+      data: {
+        userId: data.userId,
+        departmentId: data.departmentId ?? null,
+        role: data.role,
+        startTime: data.startTime instanceof Date ? data.startTime : new Date(data.startTime),
+        endTime: data.endTime
+          ? data.endTime instanceof Date
+            ? data.endTime
+            : new Date(data.endTime)
+          : null,
+        status: data.status || 'Scheduled',
+      },
+    })
+    return shiftFromPrisma(record)
   }
 }
 
 export class TaskService {
   static async findByChurch(churchId: string, status?: string, userId?: string): Promise<Task[]> {
-    // Get all users in church
-    const usersSnapshot = await db.collection(COLLECTIONS.users)
-      .where('churchId', '==', churchId)
-      .get()
-    const userIds = userId ? [userId] : usersSnapshot.docs.map((doc: any) => doc.id)
-
-    if (userIds.length === 0) return []
-
-    // Get tasks for these users
-    let allTasks: Task[] = []
-    for (const userId of userIds) {
-      let query: Query = db.collection(COLLECTIONS.tasks)
-        .where('userId', '==', userId)
-      
-      if (status) {
-        query = query.where('status', '==', status)
-      }
-
-      const snapshot = await query.orderBy('createdAt', 'desc').get()
-      const tasks = snapshot.docs.map((doc: any) => {
-        const data = doc.data()
-        return {
-          id: doc.id,
-          ...data,
-          dueDate: data.dueDate ? toDate(data.dueDate) : undefined,
-          createdAt: toDate(data.createdAt),
-          updatedAt: toDate(data.updatedAt),
-        } as Task
-      })
-      allTasks.push(...tasks)
-    }
-
-    return allTasks.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    // Single query via the user relation — no per-user loop
+    const records = await prisma.task.findMany({
+      where: {
+        ...(userId ? { userId } : { user: { churchId } }),
+        ...(status ? { status } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+    return records.map(taskFromPrisma)
   }
 
   static async create(data: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<Task> {
-    const taskData = {
-      ...data,
-      dueDate: data.dueDate ? (data.dueDate instanceof Date ? data.dueDate : new Date(data.dueDate)) : null,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    const docRef = db.collection(COLLECTIONS.tasks).doc()
-    await docRef.set(taskData)
-
-    const created = await docRef.get()
-    const createdData = created.data()!
-    return {
-      id: created.id,
-      ...createdData,
-      dueDate: createdData.dueDate ? toDate(createdData.dueDate) : undefined,
-      createdAt: toDate(createdData.createdAt),
-      updatedAt: toDate(createdData.updatedAt),
-    } as Task
+    const record = await prisma.task.create({
+      data: {
+        userId: data.userId,
+        title: data.title,
+        description: data.description ?? null,
+        departmentId: data.departmentId ?? null,
+        dueDate: data.dueDate
+          ? data.dueDate instanceof Date
+            ? data.dueDate
+            : new Date(data.dueDate)
+          : null,
+        priority: data.priority || 'Medium',
+        status: data.status || 'Pending',
+      },
+    })
+    return taskFromPrisma(record)
   }
 }
-

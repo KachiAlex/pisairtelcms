@@ -5,8 +5,7 @@ import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
 import { CommentService } from '@/lib/services/comment-service'
 import { UserService } from '@/lib/services/user-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 export async function GET(
   request: Request,
@@ -24,40 +23,52 @@ export async function GET(
 
     const comments = await CommentService.findByPost(postId)
 
-    // Get user data + like status/count for each comment
-    const commentsWithUsers = await Promise.all(
-      comments.map(async (comment) => {
-        const user = await UserService.findById(comment.userId)
+    // Batch-fetch users, like status and like counts in single queries
+    const commentIds = comments.map((c) => c.id)
+    const userIds = [...new Set(comments.map((c) => c.userId))]
 
-        const likeDoc = await db
-          .collection(COLLECTIONS.comments)
-          .doc(comment.id)
-          .collection('likes')
-          .doc(userId)
-          .get()
+    const [users, myLikes, likeCounts] = await Promise.all([
+      userIds.length > 0
+        ? prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, firstName: true, lastName: true, profileImage: true },
+          })
+        : Promise.resolve([]),
+      commentIds.length > 0
+        ? prisma.commentLike.findMany({
+            where: { userId, commentId: { in: commentIds } },
+            select: { commentId: true },
+          })
+        : Promise.resolve([]),
+      commentIds.length > 0
+        ? prisma.commentLike.groupBy({
+            by: ['commentId'],
+            where: { commentId: { in: commentIds } },
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
+    ])
 
-        const likesCountSnap = await db
-          .collection(COLLECTIONS.comments)
-          .doc(comment.id)
-          .collection('likes')
-          .count()
-          .get()
+    const userMap = new Map(users.map((u) => [u.id, u]))
+    const likedSet = new Set(myLikes.map((l) => l.commentId))
+    const countMap = new Map(likeCounts.map((c) => [c.commentId, c._count._all]))
 
-        return {
-          ...comment,
-          user: user ? {
-            id: user.id,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            profileImage: user.profileImage,
-          } : null,
-          isLiked: likeDoc.exists,
-          _count: {
-            likes: likesCountSnap.data().count || 0,
-          },
-        }
-      })
-    )
+    const commentsWithUsers = comments.map((comment) => {
+      const user = userMap.get(comment.userId)
+      return {
+        ...comment,
+        user: user ? {
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          profileImage: user.profileImage,
+        } : null,
+        isLiked: likedSet.has(comment.id),
+        _count: {
+          likes: countMap.get(comment.id) || 0,
+        },
+      }
+    })
 
     return NextResponse.json(commentsWithUsers)
   } catch (error) {

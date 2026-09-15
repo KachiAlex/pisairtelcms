@@ -1,6 +1,4 @@
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
 
 export interface AICoachingSession {
   id: string
@@ -22,58 +20,44 @@ export interface FollowUp {
 
 export class AICoachingSessionService {
   static async findByUser(userId: string, limit: number = 5): Promise<AICoachingSession[]> {
-    const snapshot = await db.collection(COLLECTIONS.aiCoachingSessions)
-      .where('userId', '==', userId)
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .get()
-
-    return snapshot.docs.map((doc: any) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        createdAt: toDate(data.createdAt),
-      } as AICoachingSession
+    const records = await prisma.aICoachingSession.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
     })
+    return records.map((r) => ({ ...r, topic: r.topic ?? undefined }))
   }
 
   static async create(data: Omit<AICoachingSession, 'id' | 'createdAt'>): Promise<AICoachingSession> {
-    const sessionData = {
-      ...data,
-      createdAt: FieldValue.serverTimestamp(),
-    }
-
-    const docRef = db.collection(COLLECTIONS.aiCoachingSessions).doc()
-    await docRef.set(sessionData)
-
-    const created = await docRef.get()
-    const createdData = created.data()!
-    return {
-      id: created.id,
-      ...createdData,
-      createdAt: toDate(createdData.createdAt),
-    } as AICoachingSession
+    const record = await prisma.aICoachingSession.create({
+      data: {
+        userId: data.userId,
+        question: data.question,
+        answer: data.answer,
+        topic: data.topic ?? null,
+      },
+    })
+    return { ...record, topic: record.topic ?? undefined }
   }
 }
 
 export class FollowUpService {
   static async create(data: Omit<FollowUp, 'id' | 'createdAt'>): Promise<FollowUp> {
-    const followUpData = {
-      ...data,
-      createdAt: FieldValue.serverTimestamp(),
-    }
-
-    const docRef = db.collection(COLLECTIONS.followUps).doc()
-    await docRef.set(followUpData)
-
-    const created = await docRef.get()
-    const createdData = created.data()!
+    const record = await prisma.followUp.create({
+      data: {
+        userId: data.userId,
+        type: data.type,
+        message: data.message,
+        scripture: data.scripture ?? null,
+      },
+    })
     return {
-      id: created.id,
-      ...createdData,
-      createdAt: toDate(createdData.createdAt),
-    } as FollowUp
+      id: record.id,
+      userId: record.userId,
+      type: record.type,
+      message: record.message,
+      scripture: record.scripture ?? undefined,
+      createdAt: record.sentAt,
+    }
   }
 }
-

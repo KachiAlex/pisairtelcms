@@ -1,6 +1,4 @@
 import { SalaryService, WageScaleService, PayrollPositionService, PayrollPeriodService, PayrollRecordService } from './services/payroll-service'
-import { db } from './firestore'
-import { COLLECTIONS } from './firestore-collections'
 
 /**
  * Calculate payroll for a user based on their salary and period
@@ -24,12 +22,10 @@ export async function calculatePayroll(
   }
 
   // Get wage scale and position
-  const [wageScaleDoc, position] = await Promise.all([
-    db.collection(COLLECTIONS.wageScales).doc(userSalary.wageScaleId).get(),
+  const [wageScale, position] = await Promise.all([
+    WageScaleService.findById(userSalary.wageScaleId),
     PayrollPositionService.findById(userSalary.positionId),
   ])
-
-  const wageScale = wageScaleDoc.exists ? { id: wageScaleDoc.id, ...wageScaleDoc.data()! } as any : null
   if (!wageScale || !position) {
     throw new Error('Salary configuration incomplete')
   }
@@ -61,7 +57,7 @@ export async function calculatePayroll(
       break
 
     case 'HOURLY':
-      if (!hoursWorked) {
+      if (hoursWorked === undefined || hoursWorked === null) {
         throw new Error('Hours worked required for hourly workers')
       }
       baseAmount = userSalaryWithRelations.amount * hoursWorked
@@ -114,8 +110,10 @@ export async function createPayrollPeriod(
 ) {
   return await PayrollPeriodService.create({
     churchId,
+    periodName,
     startDate,
     endDate,
+    payDate,
     status: 'PENDING',
   })
 }
@@ -138,28 +136,28 @@ export async function generatePayrollRecords(
   const { UserService } = await import('./services/user-service')
   const allUsers = await UserService.findByChurch(churchId)
 
+  // Fetch existing records once to avoid re-querying inside the loop
+  const existingRecords = await PayrollRecordService.findByPeriod(periodId)
+  const existingUserIds = new Set(existingRecords.map(r => r.userId))
+
   const records = []
   const errors = []
 
   for (const user of allUsers) {
     try {
+      if (existingUserIds.has(user.id)) {
+        continue // Skip if already exists
+      }
+
       // Get active salary for user
       const salaries = await SalaryService.findByUser(user.id)
-      const activeSalary = salaries.find(s => !s.endDate && 
+      const activeSalary = salaries.find(s =>
         new Date(s.startDate) <= period.endDate &&
         (!s.endDate || new Date(s.endDate) >= period.startDate)
       )
 
       if (!activeSalary) {
         continue
-      }
-
-      // Check if record already exists
-      const existingRecords = await PayrollRecordService.findByPeriod(periodId)
-      const existing = existingRecords.find(r => r.userId === user.id)
-
-      if (existing) {
-        continue // Skip if already exists
       }
 
       // Calculate payroll

@@ -1,6 +1,4 @@
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue, Query } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
 
 export type AttendanceSessionType = 'SERVICE' | 'MEETING'
 export type AttendanceMode = 'OFFLINE' | 'ONLINE' | 'HYBRID'
@@ -9,21 +7,15 @@ export type AttendanceChannel = 'OFFLINE' | 'ONLINE'
 export interface AttendanceSession {
   id: string
   churchId: string
-  branchId?: string
+  branchId?: string | null
   title: string
-  type: AttendanceSessionType
-  mode: AttendanceMode
+  type: string
+  mode: string
   startAt: Date
-  endAt?: Date
-  location?: string
-  notes?: string
-  headcount?: {
-    total?: number
-    men?: number
-    women?: number
-    children?: number
-    firstTimers?: number
-  }
+  endAt?: Date | null
+  location?: string | null
+  notes?: string | null
+  headcount?: any
   createdBy: string
   createdAt: Date
   updatedAt: Date
@@ -32,56 +24,40 @@ export interface AttendanceSession {
 export interface AttendanceRecord {
   id: string
   churchId: string
-  branchId?: string
+  branchId?: string | null
   sessionId: string
-  userId?: string
-  guestName?: string
-  channel: AttendanceChannel
+  userId?: string | null
+  guestName?: string | null
+  channel: string
   checkedInAt: Date
 }
 
 export class AttendanceService {
   static async findSessionById(id: string): Promise<AttendanceSession | null> {
-    const doc = await db.collection(COLLECTIONS.attendanceSessions).doc(id).get()
-    if (!doc.exists) return null
-    const data = doc.data()!
-    return {
-      id: doc.id,
-      ...data,
-      startAt: toDate(data.startAt),
-      endAt: data.endAt ? toDate(data.endAt) : undefined,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as AttendanceSession
+    const record = await prisma.attendanceSession.findUnique({ where: { id } })
+    if (!record) return null
+    return record as unknown as AttendanceSession
   }
 
   static async createSession(
     data: Omit<AttendanceSession, 'id' | 'createdAt' | 'updatedAt'>
   ): Promise<AttendanceSession> {
-    const sessionData: any = {
-      ...data,
-      startAt: data.startAt instanceof Date ? data.startAt : new Date(data.startAt),
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    if (data.endAt) {
-      sessionData.endAt = data.endAt instanceof Date ? data.endAt : new Date(data.endAt)
-    }
-
-    const docRef = db.collection(COLLECTIONS.attendanceSessions).doc()
-    await docRef.set(sessionData)
-
-    const created = await docRef.get()
-    const createdData = created.data()!
-    return {
-      id: created.id,
-      ...createdData,
-      startAt: toDate(createdData.startAt),
-      endAt: createdData.endAt ? toDate(createdData.endAt) : undefined,
-      createdAt: toDate(createdData.createdAt),
-      updatedAt: toDate(createdData.updatedAt),
-    } as AttendanceSession
+    const record = await prisma.attendanceSession.create({
+      data: {
+        churchId: data.churchId,
+        branchId: data.branchId ?? null,
+        title: data.title,
+        type: data.type,
+        mode: data.mode,
+        startAt: new Date(data.startAt),
+        endAt: data.endAt ? new Date(data.endAt) : null,
+        location: data.location ?? null,
+        notes: data.notes ?? null,
+        headcount: data.headcount || null,
+        createdBy: data.createdBy,
+      },
+    })
+    return record as unknown as AttendanceSession
   }
 
   static async listSessionsByChurch(
@@ -93,112 +69,83 @@ export class AttendanceService {
       limit?: number
     }
   ): Promise<AttendanceSession[]> {
-    let query: Query = db.collection(COLLECTIONS.attendanceSessions).where('churchId', '==', churchId)
-
-    if (options?.branchId) {
-      query = query.where('branchId', '==', options.branchId)
-    }
-
-    query = query.limit(options?.limit || 200)
-
-    const snapshot = await query.get()
-    let sessions = snapshot.docs.map((doc: any) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        startAt: toDate(data.startAt),
-        endAt: data.endAt ? toDate(data.endAt) : undefined,
-        createdAt: toDate(data.createdAt),
-        updatedAt: toDate(data.updatedAt),
-      } as AttendanceSession
+    const records = await prisma.attendanceSession.findMany({
+      where: {
+        churchId,
+        branchId: options?.branchId ?? undefined,
+        startAt: {
+          gte: options?.startAt,
+          lte: options?.endAt,
+        },
+      },
+      take: options?.limit || 200,
+      orderBy: { startAt: 'desc' },
     })
-
-    if (options?.startAt) {
-      sessions = sessions.filter((s) => s.startAt >= options.startAt!)
-    }
-
-    if (options?.endAt) {
-      sessions = sessions.filter((s) => s.startAt <= options.endAt!)
-    }
-
-    return sessions.sort((a, b) => b.startAt.getTime() - a.startAt.getTime())
+    return records as unknown as AttendanceSession[]
   }
 
   static async upsertHeadcount(
     sessionId: string,
-    headcount: NonNullable<AttendanceSession['headcount']>
+    headcount: any
   ): Promise<AttendanceSession> {
-    await db.collection(COLLECTIONS.attendanceSessions).doc(sessionId).update({
-      headcount,
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.attendanceSession.update({
+      where: { id: sessionId },
+      data: {
+        headcount: headcount || null,
+      },
     })
-
-    return this.findSessionById(sessionId) as Promise<AttendanceSession>
+    return record as unknown as AttendanceSession
   }
 
   static async findRecordBySessionAndUser(sessionId: string, userId: string): Promise<AttendanceRecord | null> {
-    const snapshot = await db.collection(COLLECTIONS.attendanceRecords)
-      .where('sessionId', '==', sessionId)
-      .where('userId', '==', userId)
-      .limit(1)
-      .get()
-
-    if (snapshot.empty) return null
-
-    const doc = snapshot.docs[0]
-    const data = doc.data()
-    return {
-      id: doc.id,
-      ...data,
-      checkedInAt: toDate(data.checkedInAt),
-    } as AttendanceRecord
+    const record = await prisma.attendanceRecord.findFirst({
+      where: { sessionId, userId },
+    })
+    return record as unknown as AttendanceRecord | null
   }
 
   static async checkIn(
     data: Omit<AttendanceRecord, 'id' | 'checkedInAt'>
   ): Promise<AttendanceRecord> {
-    const recordData = {
-      ...data,
-      checkedInAt: FieldValue.serverTimestamp(),
-    }
-
-    const docRef = db.collection(COLLECTIONS.attendanceRecords).doc()
-    await docRef.set(recordData)
-
-    const created = await docRef.get()
-    const createdData = created.data()!
-    return {
-      id: created.id,
-      ...createdData,
-      checkedInAt: toDate(createdData.checkedInAt),
-    } as AttendanceRecord
+    const record = await prisma.attendanceRecord.create({
+      data: {
+        churchId: data.churchId,
+        branchId: data.branchId ?? null,
+        sessionId: data.sessionId,
+        userId: data.userId ?? null,
+        guestName: data.guestName ?? null,
+        channel: data.channel,
+      },
+    })
+    return record as unknown as AttendanceRecord
   }
 
   static async listRecordsBySession(sessionId: string, limit: number = 500): Promise<AttendanceRecord[]> {
-    const snapshot = await db.collection(COLLECTIONS.attendanceRecords)
-      .where('sessionId', '==', sessionId)
-      .limit(limit)
-      .get()
-
-    const records = snapshot.docs.map((doc: any) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        checkedInAt: toDate(data.checkedInAt),
-      } as AttendanceRecord
+    const records = await prisma.attendanceRecord.findMany({
+      where: { sessionId },
+      take: limit,
+      orderBy: { checkedInAt: 'desc' },
     })
-
-    return records.sort((a, b) => b.checkedInAt.getTime() - a.checkedInAt.getTime())
+    return records as unknown as AttendanceRecord[]
   }
 
   static async countRecordsBySession(sessionId: string): Promise<number> {
-    const snapshot = await db.collection(COLLECTIONS.attendanceRecords)
-      .where('sessionId', '==', sessionId)
-      .count()
-      .get()
+    return prisma.attendanceRecord.count({
+      where: { sessionId },
+    })
+  }
 
-    return snapshot.data().count || 0
+  /**
+   * Check-in counts for many sessions in one query (sessionId -> count)
+   */
+  static async countRecordsBySessions(sessionIds: string[]): Promise<Map<string, number>> {
+    if (!sessionIds.length) return new Map()
+    const rows = await prisma.attendanceRecord.groupBy({
+      by: ['sessionId'],
+      where: { sessionId: { in: sessionIds } },
+      _count: { sessionId: true },
+    })
+    return new Map(rows.map((r) => [r.sessionId, r._count.sessionId]))
   }
 }
+

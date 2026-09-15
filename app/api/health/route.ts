@@ -34,6 +34,7 @@ export async function GET() {
         },
         email: {
           configured: !!(
+            process.env.BREVO_API_KEY ||
             process.env.RESEND_API_KEY || 
             process.env.SENDGRID_API_KEY || 
             (process.env.AWS_SES_REGION && process.env.AWS_ACCESS_KEY_ID)

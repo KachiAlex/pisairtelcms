@@ -6,8 +6,6 @@ import { MeetingService, MeetingRecurrence } from '@/lib/services/meeting-servic
 import { UserService } from '@/lib/services/user-service'
 import { ChurchGoogleService } from '@/lib/services/church-google-service'
 import { deleteCalendarEvent, updateCalendarEvent } from '@/lib/services/google-calendar-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
 
 function parseDate(v: any): Date | null {
   if (!v) return null
@@ -197,7 +195,7 @@ export async function DELETE(_request: Request, { params }: { params: { meetingI
     googleDeleteError = e?.message || 'Failed to delete Google Calendar event'
   }
 
-  await db.collection(COLLECTIONS.meetings).doc(meetingId).delete()
+  await MeetingService.deleteMeeting(meetingId)
 
   return NextResponse.json({ success: true, googleDeleteError })
 }

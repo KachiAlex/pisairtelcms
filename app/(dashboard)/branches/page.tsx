@@ -305,7 +305,7 @@ function DeleteConfirmModal({ branch, onCancel, onConfirm, loading }: DeleteConf
               disabled={loading}
               className="w-full sm:w-auto rounded-xl bg-red-600 px-5 py-2.5 font-semibold text-white shadow-sm hover:bg-red-700 disabled:opacity-60"
             >
-              {loading ? 'Deletingâ€¦' : 'Delete branch'}
+              {loading ? 'Deleting...' : 'Delete branch'}
             </button>
           </div>
         </div>
@@ -627,7 +627,7 @@ export default function BranchesPage() {
     if (!churchId) return
     try {
       setExporting(true)
-      setStatusMessage({ type: 'info', text: 'Preparing branch reportâ€¦' })
+      setStatusMessage({ type: 'info', text: 'Preparing branch report...' })
       const params = new URLSearchParams()
       if (activeFilters.start) params.set('start', activeFilters.start)
       if (activeFilters.end) params.set('end', activeFilters.end)
@@ -749,7 +749,7 @@ export default function BranchesPage() {
                     <span className="text-base font-medium text-slate-500">people</span>
                   </p>
                   <p className="text-xs text-slate-500 mt-2">
-                    {formatNumber(node.metrics.attendance.subtree.sessions)} sessions â€¢{' '}
+                    {formatNumber(node.metrics.attendance.subtree.sessions)} sessions  - {' '}
                     {formatNumber(node.metrics.attendance.subtree.firstTimers)} first timers
                   </p>
                   <p className="text-xs text-slate-400 mt-1">
@@ -770,10 +770,10 @@ export default function BranchesPage() {
                 <div className="rounded-xl bg-amber-50 p-4">
                   <p className="text-xs font-semibold uppercase text-amber-700">Finances</p>
                   <p className="text-2xl font-bold text-amber-900 mt-1">
-                    â‚¦{formatNumber(Math.round(node.metrics.finances.subtree.net))}
+                    ₦{formatNumber(Math.round(node.metrics.finances.subtree.net))}
                   </p>
                   <p className="text-xs text-amber-600 mt-2">
-                    Income â‚¦{formatNumber(Math.round(node.metrics.finances.subtree.income))} â€¢ Expenses â‚¦
+                    Income ₦{formatNumber(Math.round(node.metrics.finances.subtree.income))}  -  Expenses ₦
                     {formatNumber(Math.round(node.metrics.finances.subtree.expenses))}
                   </p>
                 </div>
@@ -803,7 +803,7 @@ export default function BranchesPage() {
                         key={`${node.id}-${admin.userId}`}
                         role="listitem"
                         className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700"
-                        title={`${admin.name}${admin.email ? ` â€¢ ${admin.email}` : ''}`}
+                        title={`${admin.name}${admin.email ? `  -  ${admin.email}` : ''}`}
                       >
                         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold uppercase text-white">
                           {getInitials(admin.name || admin.email || admin.role)}
@@ -879,7 +879,7 @@ export default function BranchesPage() {
               exporting ? 'opacity-60 cursor-not-allowed' : 'hover:bg-gray-50'
             }`}
           >
-            {exporting ? 'Exportingâ€¦' : 'Export report'}
+            {exporting ? 'Exporting...' : 'Export report'}
           </button>
           {rootLevel && canCreateRootLevel && churchId && (
             <button
@@ -995,7 +995,7 @@ export default function BranchesPage() {
               {formatNumber(summary.attendance.headcount)}
             </p>
             <p className="text-sm text-slate-500">
-              {formatNumber(summary.attendance.sessions)} sessions â€¢{' '}
+              {formatNumber(summary.attendance.sessions)} sessions  - {' '}
               {formatNumber(summary.attendance.firstTimers)} first timers
             </p>
           </div>
@@ -1009,10 +1009,10 @@ export default function BranchesPage() {
           <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
             <p className="text-xs font-semibold text-slate-500 uppercase">Financial net</p>
             <p className="text-3xl font-bold text-slate-900 mt-2">
-              â‚¦{formatNumber(Math.round(summary.finances.net))}
+              ₦{formatNumber(Math.round(summary.finances.net))}
             </p>
             <p className="text-sm text-slate-500">
-              Income â‚¦{formatNumber(Math.round(summary.finances.income))} â€¢ Expenses â‚¦
+              Income ₦{formatNumber(Math.round(summary.finances.income))}  -  Expenses ₦
               {formatNumber(Math.round(summary.finances.expenses))}
             </p>
           </div>
@@ -1021,7 +1021,7 @@ export default function BranchesPage() {
 
       {meta && (
         <p className="text-xs text-slate-500">
-          Snapshot generated {new Date(meta.generatedAt).toLocaleString()} â€¢{' '}
+          Snapshot generated {new Date(meta.generatedAt).toLocaleString()}  - {' '}
           {meta.totalBranches} branches in scope
         </p>
       )}

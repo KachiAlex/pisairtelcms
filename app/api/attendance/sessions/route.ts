@@ -30,12 +30,11 @@ export async function GET(request: Request) {
       limit: 200,
     })
 
-    const sessionsWithCounts = await Promise.all(
-      sessions.map(async (s) => {
-        const count = await AttendanceService.countRecordsBySession(s.id)
-        return { ...s, checkInCount: count }
-      })
-    )
+    const counts = await AttendanceService.countRecordsBySessions(sessions.map((s) => s.id))
+    const sessionsWithCounts = sessions.map((s) => ({
+      ...s,
+      checkInCount: counts.get(s.id) || 0,
+    }))
 
     return NextResponse.json({ sessions: sessionsWithCounts })
   } catch (error: any) {

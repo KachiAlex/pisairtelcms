@@ -1,6 +1,4 @@
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
 import crypto from 'crypto'
 import { UserRole } from '@/types'
 
@@ -35,18 +33,8 @@ export function generateInviteToken(): string {
 
 export class ChurchInviteService {
   static async findById(id: string): Promise<ChurchInvite | null> {
-    const doc = await db.collection(COLLECTIONS.churchInvites).doc(id).get()
-    if (!doc.exists) return null
-    const data = doc.data() as any
-    return {
-      id: doc.id,
-      ...data,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-      expiresAt: data.expiresAt ? toDate(data.expiresAt) : undefined,
-      revokedAt: data.revokedAt ? toDate(data.revokedAt) : undefined,
-      usedAt: data.usedAt ? toDate(data.usedAt) : undefined,
-    } as ChurchInvite
+    const record = await prisma.churchInvite.findUnique({ where: { id } })
+    return record as ChurchInvite | null
   }
 
   static async findActiveByChurch(
@@ -54,51 +42,20 @@ export class ChurchInviteService {
     purpose: ChurchInvitePurpose,
     options: { branchId?: string | null } = {},
   ): Promise<ChurchInvite | null> {
-    let query: FirebaseFirestore.Query = db
-      .collection(COLLECTIONS.churchInvites)
-      .where('churchId', '==', churchId)
-      .where('purpose', '==', purpose)
-      .where('status', '==', 'ACTIVE')
-
-    if (options.branchId !== undefined) {
-      query = query.where('branchId', '==', options.branchId ?? null)
-    }
-
-    const snap = await query.limit(1).get()
-
-    if (snap.empty) return null
-    const doc = snap.docs[0]
-    const data = doc.data() as any
-    return {
-      id: doc.id,
-      ...data,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-      expiresAt: data.expiresAt ? toDate(data.expiresAt) : undefined,
-      revokedAt: data.revokedAt ? toDate(data.revokedAt) : undefined,
-      usedAt: data.usedAt ? toDate(data.usedAt) : undefined,
-    } as ChurchInvite
+    const record = await prisma.churchInvite.findFirst({
+      where: {
+        churchId,
+        purpose,
+        status: 'ACTIVE',
+        ...(options.branchId !== undefined ? { branchId: options.branchId } : {}),
+      },
+    })
+    return record as ChurchInvite | null
   }
 
   static async findByTokenHash(tokenHash: string): Promise<ChurchInvite | null> {
-    const snap = await db
-      .collection(COLLECTIONS.churchInvites)
-      .where('tokenHash', '==', tokenHash)
-      .limit(1)
-      .get()
-
-    if (snap.empty) return null
-    const doc = snap.docs[0]
-    const data = doc.data() as any
-    return {
-      id: doc.id,
-      ...data,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-      expiresAt: data.expiresAt ? toDate(data.expiresAt) : undefined,
-      revokedAt: data.revokedAt ? toDate(data.revokedAt) : undefined,
-      usedAt: data.usedAt ? toDate(data.usedAt) : undefined,
-    } as ChurchInvite
+    const record = await prisma.churchInvite.findFirst({ where: { tokenHash } })
+    return record as ChurchInvite | null
   }
 
   static async createActive(params: {
@@ -112,42 +69,35 @@ export class ChurchInviteService {
     const token = generateInviteToken()
     const tokenHash = hashInviteToken(token)
 
-    const payload: any = {
-      churchId: params.churchId,
-      createdByUserId: params.createdByUserId,
-      purpose: params.purpose,
-      tokenHash,
-      status: 'ACTIVE',
-      branchId: params.branchId ?? null,
-      targetRole: params.targetRole ?? null,
-      expiresAt: params.expiresAt ? params.expiresAt : null,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
+    const invite = await prisma.churchInvite.create({
+      data: {
+        churchId: params.churchId,
+        createdByUserId: params.createdByUserId,
+        purpose: params.purpose,
+        tokenHash,
+        status: 'ACTIVE',
+        branchId: params.branchId ?? null,
+        targetRole: params.targetRole ?? null,
+        expiresAt: params.expiresAt ?? null,
+      },
+    })
 
-    const ref = db.collection(COLLECTIONS.churchInvites).doc()
-    await ref.set(payload)
-
-    const created = (await this.findById(ref.id)) as ChurchInvite
-    return { invite: created, token }
+    return { invite: invite as ChurchInvite, token }
   }
 
   static async revoke(id: string): Promise<ChurchInvite> {
-    await db.collection(COLLECTIONS.churchInvites).doc(id).update({
-      status: 'REVOKED',
-      revokedAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.churchInvite.update({
+      where: { id },
+      data: { status: 'REVOKED', revokedAt: new Date() },
     })
-    return (await this.findById(id)) as ChurchInvite
+    return record as ChurchInvite
   }
 
   static async markUsed(id: string, usedByUserId: string): Promise<ChurchInvite> {
-    await db.collection(COLLECTIONS.churchInvites).doc(id).update({
-      status: 'USED',
-      usedByUserId,
-      usedAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.churchInvite.update({
+      where: { id },
+      data: { status: 'USED', usedByUserId, usedAt: new Date() },
     })
-    return (await this.findById(id)) as ChurchInvite
+    return record as ChurchInvite
   }
 }

@@ -3,8 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 export async function POST(
   _: Request,
@@ -19,25 +18,25 @@ export async function POST(
     const userId = (session.user as any).id
     const { postId, commentId } = params
 
-    // Ensure comment belongs to post (lightweight check)
-    const commentDoc = await db.collection(COLLECTIONS.comments).doc(commentId).get()
-    if (!commentDoc.exists) {
-      return NextResponse.json({ error: 'Comment not found' }, { status: 404 })
-    }
-    const commentData = commentDoc.data() as any
-    if (commentData?.postId !== postId) {
+    // Ensure comment belongs to post
+    const comment = await prisma.comment.findUnique({
+      where: { id: commentId },
+      select: { id: true, postId: true },
+    })
+    if (!comment || comment.postId !== postId) {
       return NextResponse.json({ error: 'Comment not found' }, { status: 404 })
     }
 
-    const likeRef = db.collection(COLLECTIONS.comments).doc(commentId).collection('likes').doc(userId)
-    const existing = await likeRef.get()
+    const existing = await prisma.commentLike.findUnique({
+      where: { commentId_userId: { commentId, userId } },
+    })
 
-    if (existing.exists) {
-      await likeRef.delete()
+    if (existing) {
+      await prisma.commentLike.delete({ where: { id: existing.id } })
       return NextResponse.json({ liked: false })
     }
 
-    await likeRef.set({ userId, createdAt: new Date() })
+    await prisma.commentLike.create({ data: { commentId, userId } })
     return NextResponse.json({ liked: true })
   } catch (error: any) {
     console.error('Error toggling comment like:', error)

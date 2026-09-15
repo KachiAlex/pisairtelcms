@@ -1,6 +1,4 @@
-import { FieldValue } from 'firebase-admin/firestore'
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 export interface ReadingCoachSession {
   id: string
@@ -20,60 +18,58 @@ export interface ReadingCoachSession {
 export interface ReadingCoachSessionCreateInput
   extends Omit<ReadingCoachSession, 'id' | 'createdAt'> {}
 
+function sessionFromPrisma(record: any): ReadingCoachSession {
+  return {
+    id: record.id,
+    userId: record.userId,
+    planId: record.planId ?? undefined,
+    dayNumber: record.dayNumber ?? undefined,
+    question: record.question,
+    answer: record.answer,
+    actionStep: record.actionStep ?? undefined,
+    encouragement: record.encouragement ?? undefined,
+    scriptures: record.scriptures ?? undefined,
+    followUpQuestion: record.followUpQuestion ?? undefined,
+    metadata: (record.metadata as Record<string, any>) ?? undefined,
+    createdAt: record.createdAt,
+  }
+}
+
 export class ReadingCoachSessionService {
   static async create(data: ReadingCoachSessionCreateInput): Promise<ReadingCoachSession> {
-    const payload = {
-      ...data,
-      createdAt: FieldValue.serverTimestamp(),
-    }
-
-    const docRef = db.collection(COLLECTIONS.readingCoachSessions).doc()
-    await docRef.set(payload)
-
-    const created = await docRef.get()
-    const createdData = created.data()!
-    return {
-      id: docRef.id,
-      ...createdData,
-      createdAt: toDate(createdData.createdAt),
-    } as ReadingCoachSession
+    const record = await prisma.readingCoachSession.create({
+      data: {
+        userId: data.userId,
+        planId: data.planId ?? null,
+        dayNumber: data.dayNumber ?? null,
+        question: data.question,
+        answer: data.answer,
+        actionStep: data.actionStep ?? null,
+        encouragement: data.encouragement ?? null,
+        scriptures: data.scriptures ?? [],
+        followUpQuestion: data.followUpQuestion ?? null,
+        metadata: data.metadata ?? undefined,
+      },
+    })
+    return sessionFromPrisma(record)
   }
 
   static async findByUser(userId: string, limit: number = 10): Promise<ReadingCoachSession[]> {
-    const snapshot = await db
-      .collection(COLLECTIONS.readingCoachSessions)
-      .where('userId', '==', userId)
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .get()
-
-    return snapshot.docs.map((doc) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        createdAt: toDate(data.createdAt),
-      } as ReadingCoachSession
+    const records = await prisma.readingCoachSession.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
     })
+    return records.map(sessionFromPrisma)
   }
 
   static async findRecentForPlan(userId: string, planId: string, limit: number = 5): Promise<ReadingCoachSession[]> {
-    const snapshot = await db
-      .collection(COLLECTIONS.readingCoachSessions)
-      .where('userId', '==', userId)
-      .where('planId', '==', planId)
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .get()
-
-    return snapshot.docs.map((doc) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        createdAt: toDate(data.createdAt),
-      } as ReadingCoachSession
+    const records = await prisma.readingCoachSession.findMany({
+      where: { userId, planId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
     })
+    return records.map(sessionFromPrisma)
   }
 }
 
@@ -92,61 +88,50 @@ export interface ReadingCoachNudge {
 export interface ReadingCoachNudgeCreateInput
   extends Omit<ReadingCoachNudge, 'id' | 'createdAt'> {}
 
+function nudgeFromPrisma(record: any): ReadingCoachNudge {
+  return {
+    id: record.id,
+    userId: record.userId,
+    planId: record.planId ?? undefined,
+    type: record.type,
+    message: record.message,
+    status: record.status,
+    scheduledAt: record.scheduledAt ?? undefined,
+    metadata: (record.metadata as Record<string, any>) ?? undefined,
+    createdAt: record.createdAt,
+  }
+}
+
 export class ReadingCoachNudgeService {
   static async create(data: ReadingCoachNudgeCreateInput): Promise<ReadingCoachNudge> {
-    const payload = {
-      ...data,
-      createdAt: FieldValue.serverTimestamp(),
-    }
-
-    const docRef = db.collection(COLLECTIONS.readingCoachNudges).doc()
-    await docRef.set(payload)
-
-    const created = await docRef.get()
-    const createdData = created.data()!
-    return {
-      id: docRef.id,
-      ...createdData,
-      scheduledAt: createdData.scheduledAt ? toDate(createdData.scheduledAt) : undefined,
-      createdAt: toDate(createdData.createdAt),
-    } as ReadingCoachNudge
+    const record = await prisma.readingCoachNudge.create({
+      data: {
+        userId: data.userId,
+        planId: data.planId ?? null,
+        type: data.type,
+        message: data.message,
+        status: data.status ?? 'pending',
+        scheduledAt: data.scheduledAt ?? null,
+        metadata: data.metadata ?? undefined,
+      },
+    })
+    return nudgeFromPrisma(record)
   }
 
   static async listPending(userId: string): Promise<ReadingCoachNudge[]> {
-    const snapshot = await db
-      .collection(COLLECTIONS.readingCoachNudges)
-      .where('userId', '==', userId)
-      .where('status', '==', 'pending')
-      .orderBy('createdAt', 'desc')
-      .get()
-
-    return snapshot.docs.map((doc) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        scheduledAt: data.scheduledAt ? toDate(data.scheduledAt) : undefined,
-        createdAt: toDate(data.createdAt),
-      } as ReadingCoachNudge
+    const records = await prisma.readingCoachNudge.findMany({
+      where: { userId, status: 'pending' },
+      orderBy: { createdAt: 'desc' },
     })
+    return records.map(nudgeFromPrisma)
   }
 
   static async findById(id: string): Promise<ReadingCoachNudge | null> {
-    const doc = await db.collection(COLLECTIONS.readingCoachNudges).doc(id).get()
-    if (!doc.exists) return null
-    const data = doc.data()!
-    return {
-      id: doc.id,
-      ...data,
-      scheduledAt: data.scheduledAt ? toDate(data.scheduledAt) : undefined,
-      createdAt: toDate(data.createdAt),
-    } as ReadingCoachNudge
+    const record = await prisma.readingCoachNudge.findUnique({ where: { id } })
+    return record ? nudgeFromPrisma(record) : null
   }
 
   static async updateStatus(id: string, status: ReadingCoachNudge['status']): Promise<void> {
-    await db.collection(COLLECTIONS.readingCoachNudges).doc(id).update({
-      status,
-      updatedAt: FieldValue.serverTimestamp(),
-    })
+    await prisma.readingCoachNudge.update({ where: { id }, data: { status } })
   }
 }

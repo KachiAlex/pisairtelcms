@@ -3,12 +3,10 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
-import { UserService } from '@/lib/services/user-service'
-import { ReadingPlanProgressService } from '@/lib/services/reading-plan-service'
-import { ReadingPlanService } from '@/lib/services/reading-plan-service'
 import { getCurrentChurch } from '@/lib/church-context'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
+
+const PRIVILEGED_ROLES = ['ADMIN', 'SUPER_ADMIN', 'PASTOR', 'BRANCH_ADMIN']
 
 export async function GET(request: Request) {
   try {
@@ -18,8 +16,9 @@ export async function GET(request: Request) {
     }
 
     const userId = (session.user as any).id
+    const sessionRole = (session.user as any).role as string | undefined
     const church = await getCurrentChurch(userId)
-    
+
     if (!church) {
       return NextResponse.json(
         { error: 'No church selected' },
@@ -28,77 +27,93 @@ export async function GET(request: Request) {
     }
 
     const { searchParams } = new URL(request.url)
-    const familyId = searchParams.get('familyId') || userId
+    const familyIdParam = searchParams.get('familyId')
 
-    // Get all users in church to find family members
-    const allUsers = await UserService.findByChurch(church.id)
-    const familyMembers = allUsers.filter(user =>
-      user.id === familyId || user.parentId === familyId || user.spouseId === familyId
-    )
+    // Restrict to own family unless caller is privileged
+    let familyId = userId
+    if (familyIdParam && familyIdParam !== userId) {
+      if (!PRIVILEGED_ROLES.includes(sessionRole || '')) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
+      familyId = familyIdParam
+    }
 
-    // Get family member details with reading plans and counts
-    const family = await Promise.all(
-      familyMembers.map(async (member) => {
-        // Get active reading plans
-        const activeProgress = await ReadingPlanProgressService.findByUser(member.id)
-        const incompleteProgress = activeProgress.filter(p => !p.completed)
+    // Targeted family query instead of scanning all church users
+    const familyMembers = await prisma.user.findMany({
+      where: {
+        churchId: church.id,
+        OR: [
+          { id: familyId },
+          { parentId: familyId },
+          { spouseId: familyId },
+          { firestoreData: { path: ['parentId'], equals: familyId } },
+          { firestoreData: { path: ['spouseId'], equals: familyId } },
+        ],
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        profileImage: true,
+        role: true,
+      },
+    })
 
-        const readingPlans = await Promise.all(
-          incompleteProgress.map(async (progress) => {
-            const plan = await ReadingPlanService.findById(progress.planId)
-            return plan ? {
-              id: plan.id,
-              title: plan.title,
-              duration: plan.duration,
-            } : null
-          })
-        )
+    const memberIds = familyMembers.map((m) => m.id)
 
-        // Get counts
-        const [prayerRequestsCount, completedPlansCount] = await Promise.all([
-          db.collection(COLLECTIONS.prayerRequests).where('userId', '==', member.id).count().get(),
-          db.collection(COLLECTIONS.readingPlanProgress)
-            .where('userId', '==', member.id)
-            .where('completed', '==', true)
-            .count()
-            .get(),
-        ])
+    // Batch all progress + prayer counts in two queries (no N+1)
+    const [allProgress, prayerCounts] = await Promise.all([
+      prisma.readingPlanProgress.findMany({
+        where: { userId: { in: memberIds } },
+        include: { readingPlan: { select: { id: true, title: true, duration: true } } },
+      }),
+      prisma.prayerRequest.groupBy({
+        by: ['userId'],
+        where: { userId: { in: memberIds } },
+        _count: { _all: true },
+      }),
+    ])
 
-        return {
-          id: member.id,
-          firstName: member.firstName,
-          lastName: member.lastName,
-          profileImage: member.profileImage,
-          role: member.role,
-          readingPlans: readingPlans.filter(Boolean),
-          _count: {
-            prayerRequests: prayerRequestsCount.data().count || 0,
-            readingPlans: completedPlansCount.data().count || 0,
-          },
-        }
-      })
-    )
+    const prayerCountByUser = new Map(prayerCounts.map((c) => [c.userId, c._count._all]))
+    const progressByUser = new Map<string, typeof allProgress>()
+    for (const p of allProgress) {
+      const list = progressByUser.get(p.userId) || []
+      list.push(p)
+      progressByUser.set(p.userId, list)
+    }
 
-    // Calculate family progress
-    const totalPlans = family.reduce(
-      (sum, member) => sum + member.readingPlans.length,
-      0
-    )
-    const completedPlans = family.reduce(
-      (sum, member) => sum + member._count.readingPlans,
-      0
-    )
+    const family = familyMembers.map((member) => {
+      const progress = progressByUser.get(member.id) || []
+      const activePlans = progress
+        .filter((p) => !p.completed)
+        .map((p) => ({
+          id: p.readingPlan.id,
+          title: p.readingPlan.title,
+          duration: p.readingPlan.duration,
+        }))
+      const completedCount = progress.filter((p) => p.completed).length
+
+      return {
+        id: member.id,
+        firstName: member.firstName,
+        lastName: member.lastName,
+        profileImage: member.profileImage,
+        role: member.role,
+        readingPlans: activePlans,
+        _count: {
+          prayerRequests: prayerCountByUser.get(member.id) || 0,
+          readingPlans: completedCount,
+        },
+      }
+    })
 
     return NextResponse.json({
       family,
       stats: {
         totalMembers: family.length,
-        activePlans: totalPlans,
-        completedPlans,
-        totalPrayerRequests: family.reduce(
-          (sum, member) => sum + member._count.prayerRequests,
-          0
-        ),
+        activePlans: family.reduce((sum, m) => sum + m.readingPlans.length, 0),
+        completedPlans: family.reduce((sum, m) => sum + m._count.readingPlans, 0),
+        totalPrayerRequests: family.reduce((sum, m) => sum + m._count.prayerRequests, 0),
       },
     })
   } catch (error) {

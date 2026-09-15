@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useState } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { usePredictAttendance } from '@/hooks/useRecommendations'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -99,7 +98,7 @@ export function AttendancePredictionCard({ eventType, dayOfWeek, timeOfDay }: {
           <p className="text-xs text-gray-600 dark:text-gray-400">Trend</p>
           <p className="text-lg font-semibold text-purple-600 dark:text-purple-400">
             {prediction?.trend === 'increasing' ? '📈' : prediction?.trend === 'decreasing' ? '📉' : '➡️'}
-            {' '}{prediction?.trend?.charAt(0).toUpperCase() + prediction?.trend?.slice(1)}
+            {' '}{prediction?.trend ? prediction.trend.charAt(0).toUpperCase() + prediction.trend.slice(1) : 'Stable'}
           </p>
         </div>
         <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded">

@@ -1,7 +1,5 @@
 import { google } from 'googleapis'
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
 
 export type ChurchGoogleTokens = {
   id: string
@@ -33,22 +31,21 @@ export function getGoogleOAuthClient() {
 
 export class ChurchGoogleService {
   static async getTokensByChurchId(churchId: string): Promise<ChurchGoogleTokens | null> {
-    const doc = await db.collection(COLLECTIONS.churchGoogleTokens).doc(churchId).get()
-    if (!doc.exists) return null
-    const data = doc.data()!
+    const record = await prisma.churchGoogleToken.findUnique({ where: { churchId } })
+    if (!record) return null
 
     return {
-      id: doc.id,
-      churchId: data.churchId,
-      accessToken: data.accessToken,
-      refreshToken: data.refreshToken,
-      scope: data.scope,
-      tokenType: data.tokenType,
-      expiryDate: data.expiryDate,
-      calendarId: data.calendarId,
-      connectedByUserId: data.connectedByUserId,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
+      id: record.id,
+      churchId: record.churchId,
+      accessToken: record.accessToken ?? undefined,
+      refreshToken: record.refreshToken ?? undefined,
+      scope: record.scope ?? undefined,
+      tokenType: record.tokenType ?? undefined,
+      expiryDate: record.expiryDate ? Number(record.expiryDate) : undefined,
+      calendarId: record.calendarId ?? undefined,
+      connectedByUserId: record.connectedByUserId,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     }
   }
 
@@ -62,49 +59,36 @@ export class ChurchGoogleService {
     expiryDate?: number
     calendarId?: string
   }): Promise<ChurchGoogleTokens> {
-    const ref = db.collection(COLLECTIONS.churchGoogleTokens).doc(params.churchId)
-
-    const existing = await ref.get()
-
-    const payload: any = {
+    const data = {
       churchId: params.churchId,
       connectedByUserId: params.connectedByUserId,
       accessToken: params.accessToken,
+      refreshToken: params.refreshToken,
       scope: params.scope,
       tokenType: params.tokenType,
-      expiryDate: params.expiryDate,
+      expiryDate: params.expiryDate != null ? String(params.expiryDate) : null,
       calendarId: params.calendarId,
-      updatedAt: FieldValue.serverTimestamp(),
+      updatedAt: new Date(),
     }
 
-    // Only overwrite refreshToken if we got one.
-    if (params.refreshToken) payload.refreshToken = params.refreshToken
-
-    if (existing.exists) {
-      await ref.update(payload)
-    } else {
-      await ref.set({
-        ...payload,
-        refreshToken: params.refreshToken,
-        createdAt: FieldValue.serverTimestamp(),
-      })
-    }
-
-    const updated = await ref.get()
-    const data = updated.data()!
+    const record = await prisma.churchGoogleToken.upsert({
+      where: { churchId: params.churchId },
+      update: data,
+      create: { ...data, createdAt: new Date() },
+    })
 
     return {
-      id: updated.id,
-      churchId: data.churchId,
-      accessToken: data.accessToken,
-      refreshToken: data.refreshToken,
-      scope: data.scope,
-      tokenType: data.tokenType,
-      expiryDate: data.expiryDate,
-      calendarId: data.calendarId,
-      connectedByUserId: data.connectedByUserId,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
+      id: record.id,
+      churchId: record.churchId,
+      accessToken: record.accessToken ?? undefined,
+      refreshToken: record.refreshToken ?? undefined,
+      scope: record.scope ?? undefined,
+      tokenType: record.tokenType ?? undefined,
+      expiryDate: record.expiryDate ? Number(record.expiryDate) : undefined,
+      calendarId: record.calendarId ?? undefined,
+      connectedByUserId: record.connectedByUserId,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     }
   }
 

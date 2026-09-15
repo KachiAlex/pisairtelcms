@@ -1,5 +1,5 @@
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
+import type { Prisma } from '@prisma/client'
 import { SubscriptionPlanService } from '@/lib/services/subscription-service'
 import type { LandingPlanPaymentStatus, LandingPlanPayment } from '@/lib/services/landing-payment-service'
 
@@ -38,57 +38,48 @@ export async function getPlatformAnalytics(period: AnalyticsPeriod = 'month'): P
   const now = new Date()
   const { current, previous, label } = getPeriodWindows(period, now)
 
-  const [churchSnapshot, userSnapshot, subscriptionSnapshot, paymentSnapshot, plans] = await Promise.all([
-    db.collection(COLLECTIONS.churches).get(),
-    db.collection(COLLECTIONS.users).get(),
-    db.collection(COLLECTIONS.subscriptions).get(),
-    db.collection(COLLECTIONS.subscriptionPayments).get(),
+  const [churchRecords, userRecords, subscriptionRecords, paymentRecords, plans] = await Promise.all([
+    prisma.church.findMany({ select: { id: true, name: true, createdAt: true } }),
+    prisma.user.findMany({ select: { id: true, createdAt: true } }),
+    prisma.subscription.findMany({
+      select: { id: true, churchId: true, planId: true, status: true, trialEnd: true },
+    }),
+    prisma.subscriptionPayment.findMany({
+      where: { status: { in: ['PAID', 'APPLIED'] } },
+      select: { id: true, status: true, amount: true, currency: true, paidAt: true, createdAt: true, updatedAt: true },
+    }),
     SubscriptionPlanService.findAll(),
   ])
 
-  const churches = churchSnapshot.docs.map((doc) => {
-    const data = doc.data()
-    return {
-      id: doc.id,
-      name: data.name || 'Untitled Church',
-      createdAt: toDateSafe(data.createdAt),
-    }
-  })
+  const churches = churchRecords.map((church) => ({
+    id: church.id,
+    name: church.name || 'Untitled Church',
+    createdAt: church.createdAt ?? new Date(0),
+  }))
 
   const churchMap = new Map(churches.map((church) => [church.id, church]))
 
-  const users = userSnapshot.docs.map((doc) => {
-    const data = doc.data()
-    return {
-      id: doc.id,
-      createdAt: toDateSafe(data.createdAt),
-    }
-  })
+  const users = userRecords.map((user) => ({
+    id: user.id,
+    createdAt: user.createdAt ?? new Date(0),
+  }))
 
-  const subscriptions = subscriptionSnapshot.docs.map((doc) => {
-    const data = doc.data()
-    return {
-      id: doc.id,
-      churchId: data.churchId,
-      planId: data.planId,
-      status: data.status || 'ACTIVE',
-      trialEndsAt: toNullableDate(data.trialEndsAt),
-      updatedAt: toDateSafe(data.updatedAt),
-    }
-  })
+  const subscriptions = subscriptionRecords.map((sub) => ({
+    id: sub.id,
+    churchId: sub.churchId,
+    planId: sub.planId,
+    status: sub.status || 'ACTIVE',
+    trialEndsAt: sub.trialEnd,
+  }))
 
-  const payments = paymentSnapshot.docs
-    .map((doc) => {
-      const data = doc.data()
-      const paidAt = toNullableDate(data.paidAt) || toDateSafe(data.updatedAt) || toDateSafe(data.createdAt)
-      return {
-        id: doc.id,
-        status: data.status || 'INITIATED',
-        amount: typeof data.amount === 'number' ? data.amount : Number(data.amount) || 0,
-        currency: data.currency || 'USD',
-        paidAt,
-      }
-    })
+  const payments: PaymentRecord[] = paymentRecords
+    .map((payment) => ({
+      id: payment.id,
+      status: payment.status || 'INITIATED',
+      amount: typeof payment.amount === 'number' ? payment.amount : Number(payment.amount) || 0,
+      currency: payment.currency || 'USD',
+      paidAt: payment.paidAt || payment.updatedAt || payment.createdAt,
+    }))
     .filter((payment) => payment.paidAt !== null)
 
   const planMap = new Map(plans.map((plan) => [plan.id, plan]))
@@ -195,38 +186,28 @@ export async function getLandingCheckoutAnalytics(params?: {
   status?: LandingPlanPaymentStatus[]
 }) {
   const { startDate, endDate, planIds, status } = params || {}
-  let query: FirebaseFirestore.Query = db.collection(COLLECTIONS.landingPlanPayments)
 
-  if (startDate) {
-    query = query.where('createdAt', '>=', startDate)
-  }
-  if (endDate) {
-    query = query.where('createdAt', '<=', endDate)
+  const where: Prisma.LandingPlanPaymentWhereInput = {}
+  if (startDate || endDate) {
+    where.createdAt = {}
+    if (startDate) where.createdAt.gte = startDate
+    if (endDate) where.createdAt.lte = endDate
   }
   if (planIds && planIds.length > 0) {
-    query = query.where('planId', 'in', planIds.slice(0, 10))
+    where.planId = { in: planIds.slice(0, 10) }
+  }
+  if (status && status.length > 0) {
+    where.status = { in: status }
   }
 
-  type LandingCheckoutRecord = LandingPlanPayment & {
-    id: string
-  }
-
-  const snapshot = await query.get()
-  const documents: LandingCheckoutRecord[] = snapshot.docs.map((doc) => {
-    const data = doc.data() as LandingPlanPayment
-    return {
-      ...data,
-      id: doc.id,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-      paidAt: data.paidAt ? toDate(data.paidAt) : undefined,
-    }
+  const records = await prisma.landingPlanPayment.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
   })
-  documents.sort((a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0))
 
-  const filtered = status ? documents.filter((doc) => status.includes(doc.status)) : documents
+  const documents = records as unknown as Array<LandingPlanPayment & { id: string }>
 
-  const totals = filtered.reduce(
+  const totals = documents.reduce(
     (acc, doc) => {
       acc.count += 1
       const amount = typeof doc.amount === 'number' ? doc.amount : Number(doc.amount) || 0
@@ -252,7 +233,7 @@ export async function getLandingCheckoutAnalytics(params?: {
   return {
     totals,
     conversionRate,
-    entries: filtered,
+    entries: documents,
   }
 }
 
@@ -331,18 +312,6 @@ function buildMonthlySeries(churches: SimpleChurch[], payments: PaymentRecord[],
   }
 
   return series
-}
-
-function toDateSafe(value: any): Date {
-  if (!value) return new Date(0)
-  if (value instanceof Date) return value
-  return toDate(value)
-}
-
-function toNullableDate(value: any): Date | null {
-  if (!value) return null
-  if (value instanceof Date) return value
-  return toDate(value)
 }
 
 function addDays(date: Date, days: number) {

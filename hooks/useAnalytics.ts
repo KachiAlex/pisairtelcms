@@ -25,7 +25,7 @@ export function useAnalytics(churchId: string) {
         const response = await fetch('/api/analytics/meetings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ churchId, ...data }),
+          body: JSON.stringify({ ...data, churchId }),
         })
 
         if (!response.ok) throw new Error('Failed to record meeting')
@@ -48,7 +48,7 @@ export function useAnalytics(churchId: string) {
         const response = await fetch('/api/analytics/livestream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ churchId, ...data }),
+          body: JSON.stringify({ ...data, churchId }),
         })
 
         if (!response.ok) throw new Error('Failed to record livestream')
@@ -71,7 +71,7 @@ export function useAnalytics(churchId: string) {
         const response = await fetch('/api/analytics/attendance', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ churchId, ...data }),
+          body: JSON.stringify({ ...data, churchId }),
         })
 
         if (!response.ok) throw new Error('Failed to record attendance')

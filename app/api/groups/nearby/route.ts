@@ -5,8 +5,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { getCurrentChurch } from '@/lib/church-context'
 import { GroupService } from '@/lib/services/group-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 /**
  * Calculate distance between two coordinates (Haversine formula)
@@ -63,45 +62,49 @@ export async function GET(request: Request) {
     const groups = await GroupService.findByChurch(church.id)
     const groupsWithLocation = groups.filter(g => g.latitude && g.longitude)
 
+    // Batch-fetch member counts and departments (no N+1)
+    const groupIds = groupsWithLocation.map((g) => g.id)
+    const departmentIds = [...new Set(groupsWithLocation.map((g) => g.departmentId).filter(Boolean))] as string[]
+
+    const [memberCounts, departments] = await Promise.all([
+      groupIds.length > 0
+        ? prisma.groupMembership.groupBy({
+            by: ['groupId'],
+            where: { groupId: { in: groupIds } },
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
+      departmentIds.length > 0
+        ? prisma.department.findMany({
+            where: { id: { in: departmentIds } },
+            select: { id: true, name: true },
+          })
+        : Promise.resolve([]),
+    ])
+
+    const countMap = new Map(memberCounts.map((m) => [m.groupId, m._count._all]))
+    const deptMap = new Map(departments.map((d) => [d.id, d]))
+
     // Calculate distances and filter
-    const groupsWithDistance = await Promise.all(
-      groupsWithLocation.map(async (group) => {
-        const distance = calculateDistance(
-          latitude,
-          longitude,
-          group.latitude!,
-          group.longitude!
-        )
+    const groupsWithDistance = groupsWithLocation.map((group) => {
+      const distance = calculateDistance(
+        latitude,
+        longitude,
+        group.latitude!,
+        group.longitude!
+      )
 
-        // Get member count
-        const membersSnapshot = await db.collection(COLLECTIONS.groupMemberships)
-          .where('groupId', '==', group.id)
-          .count()
-          .get()
+      const dept = group.departmentId ? deptMap.get(group.departmentId) : null
 
-        // Get department info if exists
-        let department = null
-        if (group.departmentId) {
-          const deptDoc = await db.collection(COLLECTIONS.departments).doc(group.departmentId).get()
-          if (deptDoc.exists) {
-            const deptData = deptDoc.data()!
-            department = {
-              id: deptDoc.id,
-              name: deptData.name,
-            }
-          }
-        }
-
-        return {
-          ...group,
-          distance: Math.round(distance * 10) / 10, // Round to 1 decimal
-          _count: {
-            members: membersSnapshot.data().count || 0,
-          },
-          department,
-        }
-      })
-    )
+      return {
+        ...group,
+        distance: Math.round(distance * 10) / 10, // Round to 1 decimal
+        _count: {
+          members: countMap.get(group.id) || 0,
+        },
+        department: dept ? { id: dept.id, name: dept.name } : null,
+      }
+    })
     const groupsWithDistanceFiltered = groupsWithDistance
       .filter((g) => g.distance <= maxDistance)
       .sort((a, b) => a.distance - b.distance)

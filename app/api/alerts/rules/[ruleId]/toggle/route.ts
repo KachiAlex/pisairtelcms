@@ -33,7 +33,10 @@ export async function POST(
       )
     }
 
-    await AlertService.toggleAlertRule(ruleId, enabled)
+    const updated = await AlertService.toggleAlertRule(ruleId, enabled, (session.user as any).id)
+    if (!updated) {
+      return NextResponse.json({ success: false, error: 'Alert rule not found' }, { status: 404 })
+    }
 
     return NextResponse.json({
       success: true,

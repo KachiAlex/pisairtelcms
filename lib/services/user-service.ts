@@ -35,8 +35,8 @@ export interface User {
     currency: string
     payFrequency: PayFrequencyOption
   }
-  parentId?: string
-  spouseId?: string
+  parentId?: string | null
+  spouseId?: string | null
   xp?: number
   level?: number
   lastLoginAt?: Date
@@ -48,6 +48,9 @@ const PRISMA_FIELDS = new Set([
   'id', 'createdAt', 'updatedAt', 'password', 'email', 'firstName', 'lastName',
   'phone', 'profileImage', 'bio', 'dateOfBirth', 'address', 'city', 'state',
   'zipCode', 'country', 'role', 'spiritualMaturity', 'churchId', 'branchId',
+  'parentId', 'spouseId',
+  'isStaff', 'staffLevelId', 'staffLevelName', 'designationId', 'designationName',
+  'employmentStatus', 'isSuspended', 'customWage',
   'xp', 'level', 'lastLoginAt', 'firestoreData'
 ])
 
@@ -128,6 +131,16 @@ export class UserService {
         spiritualMaturity: data.spiritualMaturity as any,
         churchId: data.churchId,
         branchId: data.branchId,
+        parentId: data.parentId || null,
+        spouseId: data.spouseId || null,
+        isStaff: data.isStaff ?? false,
+        staffLevelId: data.staffLevelId || null,
+        staffLevelName: data.staffLevelName || null,
+        designationId: data.designationId || null,
+        designationName: data.designationName || null,
+        employmentStatus: data.employmentStatus || null,
+        isSuspended: data.isSuspended ?? false,
+        customWage: data.customWage ?? undefined,
         xp: data.xp || 0,
         level: data.level || 1,
         firestoreData: this.buildLegacyData(data),
@@ -163,6 +176,16 @@ export class UserService {
     if (data.spiritualMaturity !== undefined) updateData.spiritualMaturity = data.spiritualMaturity as any
     if (data.churchId !== undefined) updateData.churchId = data.churchId
     if (data.branchId !== undefined) updateData.branchId = data.branchId
+    if (data.parentId !== undefined) updateData.parentId = data.parentId || null
+    if (data.spouseId !== undefined) updateData.spouseId = data.spouseId || null
+    if (data.isStaff !== undefined) updateData.isStaff = data.isStaff
+    if (data.staffLevelId !== undefined) updateData.staffLevelId = data.staffLevelId || null
+    if (data.staffLevelName !== undefined) updateData.staffLevelName = data.staffLevelName || null
+    if (data.designationId !== undefined) updateData.designationId = data.designationId || null
+    if (data.designationName !== undefined) updateData.designationName = data.designationName || null
+    if (data.employmentStatus !== undefined) updateData.employmentStatus = data.employmentStatus || null
+    if (data.isSuspended !== undefined) updateData.isSuspended = data.isSuspended
+    if (data.customWage !== undefined) updateData.customWage = data.customWage
     if (data.xp !== undefined) updateData.xp = data.xp
     if (data.level !== undefined) updateData.level = data.level
     if (data.lastLoginAt !== undefined) updateData.lastLoginAt = data.lastLoginAt
@@ -188,6 +211,93 @@ export class UserService {
   }
 
   /**
+   * Delete user and clean up all associated records in PostgreSQL
+   * (salaries, payroll records, check-ins, badges, messages, etc.)
+   */
+  static async deleteWithRelations(id: string): Promise<void> {
+    // Records with required FK references that must be removed first
+    const deleteTargets: Array<[string, string]> = [
+      ['branchAdmin', 'userId'],
+      ['departmentMembership', 'userId'],
+      ['groupMembership', 'userId'],
+      ['unitMembership', 'userId'],
+      ['readingPlanProgress', 'userId'],
+      ['aICoachingSession', 'userId'],
+      ['readingCoachSession', 'userId'],
+      ['readingCoachNudge', 'userId'],
+      ['followUp', 'userId'],
+      ['post', 'userId'],
+      ['postLike', 'userId'],
+      ['comment', 'userId'],
+      ['testimony', 'userId'],
+      ['prayerRequest', 'userId'],
+      ['prayerInteraction', 'userId'],
+      ['sermonView', 'userId'],
+      ['sermonDownload', 'userId'],
+      ['giving', 'userId'],
+      ['eventRegistration', 'userId'],
+      ['eventAttendance', 'userId'],
+      ['checkIn', 'userId'],
+      ['childrenCheckIn', 'childId'],
+      ['childrenCheckIn', 'parentId'],
+      ['message', 'senderId'],
+      ['message', 'receiverId'],
+      ['groupMessage', 'userId'],
+      ['userBadge', 'userId'],
+      ['volunteerShift', 'userId'],
+      ['task', 'userId'],
+      ['userSalary', 'userId'],
+      ['payrollRecord', 'userId'],
+      ['mentorAssignment', 'mentorId'],
+      ['mentorAssignment', 'menteeId'],
+      ['invitationForm', 'createdBy'],
+      ['invitationLink', 'createdBy'],
+      ['readingPlanNewsletter', 'createdBy'],
+      ['survey', 'createdBy'],
+      ['livestream', 'createdBy'],
+      ['meeting', 'createdBy'],
+      ['attendanceSession', 'createdBy'],
+      ['accountingIncome', 'createdBy'],
+      ['accountingExpense', 'createdBy'],
+    ]
+
+    // Optional FK references that should be nulled rather than deleted
+    const nullifyTargets: Array<[string, string]> = [
+      ['unit', 'leaderId'],
+      ['registrationSubmission', 'reviewedBy'],
+      ['registrationSubmission', 'createdUserId'],
+      ['attendanceRecord', 'userId'],
+      ['surveyResponse', 'userId'],
+    ]
+
+    for (const [model, field] of deleteTargets) {
+      try {
+        await (prisma as any)[model].deleteMany({ where: { [field]: id } })
+      } catch (error) {
+        console.error(`Failed to clean up ${model}.${field} for user ${id}:`, error)
+      }
+    }
+
+    for (const [model, field] of nullifyTargets) {
+      try {
+        await (prisma as any)[model].updateMany({ where: { [field]: id }, data: { [field]: null } })
+      } catch (error) {
+        console.error(`Failed to nullify ${model}.${field} for user ${id}:`, error)
+      }
+    }
+
+    // Unlink family relationships so the delete doesn't violate FK constraints
+    try {
+      await prisma.user.updateMany({ where: { parentId: id }, data: { parentId: null } })
+      await prisma.user.updateMany({ where: { spouseId: id }, data: { spouseId: null } })
+    } catch (error) {
+      console.error(`Failed to unlink family relations for user ${id}:`, error)
+    }
+
+    await this.delete(id)
+  }
+
+  /**
    * Find users by church
    */
   static async findByChurch(churchId: string, limit?: number): Promise<User[]> {
@@ -200,21 +310,103 @@ export class UserService {
   }
 
   /**
+   * Query users by church with database-level filtering and pagination.
+   * JSON-legacy fields (isStaff, designationId) are filtered in memory;
+   * when they are active the full matching set is fetched for a correct total.
+   */
+  static async queryByChurch(
+    churchId: string,
+    options: {
+      branchId?: string | null
+      role?: string | null
+      roles?: string[] | null
+      search?: string | null
+      isStaff?: boolean | null
+      designationId?: string | null
+      parentId?: string | null
+      page?: number
+      limit?: number
+    } = {}
+  ): Promise<{ users: User[]; total: number }> {
+    const where: any = { churchId }
+    const and: any[] = []
+
+    if (options.branchId) {
+      where.branchId = options.branchId
+    }
+
+    if (options.roles && options.roles.length > 0) {
+      where.role = { in: options.roles }
+    } else if (options.role) {
+      where.role = options.role
+    }
+
+    if (options.parentId) {
+      // parentId lives in a real column for new writes; legacy rows store it in firestoreData
+      and.push({
+        OR: [
+          { parentId: options.parentId },
+          { firestoreData: { path: ['parentId'], equals: options.parentId } },
+        ],
+      })
+    }
+
+    if (options.isStaff !== undefined && options.isStaff !== null) {
+      and.push({
+        OR: [
+          { isStaff: options.isStaff },
+          { firestoreData: { path: ['isStaff'], equals: options.isStaff } },
+        ],
+      })
+    }
+
+    if (options.designationId) {
+      and.push({
+        OR: [
+          { designationId: options.designationId },
+          { firestoreData: { path: ['designationId'], equals: options.designationId } },
+        ],
+      })
+    }
+
+    const search = options.search?.trim()
+    if (search) {
+      and.push({
+        OR: [
+          { firstName: { contains: search, mode: 'insensitive' } },
+          { lastName: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+        ],
+      })
+    }
+
+    if (and.length > 0) {
+      where.AND = and
+    }
+
+    const page = options.page && options.page > 0 ? options.page : 1
+    const limit = options.limit && options.limit > 0 ? options.limit : undefined
+
+    const [records, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: limit ? (page - 1) * limit : undefined,
+        take: limit,
+      }),
+      prisma.user.count({ where }),
+    ])
+    return { users: records.map((record) => this.fromPrisma(record)), total }
+  }
+
+  /**
    * Search users
    */
   static async search(churchId: string, searchTerm: string): Promise<User[]> {
-    const searchLower = searchTerm.toLowerCase()
-    const records = await prisma.user.findMany({
-      where: { churchId },
-      orderBy: { createdAt: 'desc' },
-    })
-    return records
-      .map((record) => this.fromPrisma(record))
-      .filter((user) =>
-        user.firstName?.toLowerCase().includes(searchLower) ||
-        user.lastName?.toLowerCase().includes(searchLower) ||
-        user.email?.toLowerCase().includes(searchLower)
-      )
+    const search = searchTerm.trim()
+    if (!search) return this.findByChurch(churchId)
+    const { users } = await this.queryByChurch(churchId, { search })
+    return users
   }
 
   /**

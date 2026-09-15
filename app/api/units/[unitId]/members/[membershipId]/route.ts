@@ -3,8 +3,6 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { guardApi } from '@/lib/api-guard'
 import { UnitService, UnitMembershipService } from '@/lib/services/unit-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
 
 export async function DELETE(_: Request, { params }: { params: { unitId: string; membershipId: string } }) {
   const guarded = await guardApi({ requireChurch: true })
@@ -40,7 +38,7 @@ export async function DELETE(_: Request, { params }: { params: { unitId: string;
   }
 
   // Remove the membership
-  await db.collection(COLLECTIONS.unitMemberships).doc(params.membershipId).delete()
+  await UnitMembershipService.delete(params.membershipId)
 
   return NextResponse.json({ success: true })
 }

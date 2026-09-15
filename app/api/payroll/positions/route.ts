@@ -1,9 +1,8 @@
 
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
-import { PayrollPositionService } from '@/lib/services/payroll-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { PayrollPositionService, WageScaleService } from '@/lib/services/payroll-service'
+import { prisma } from '@/lib/prisma'
 import { guardApi } from '@/lib/api-guard'
 
 export async function GET() {
@@ -21,32 +20,27 @@ export async function GET() {
         // Get department
         let department = null
         if (position.departmentId) {
-          const deptDoc = await db.collection(COLLECTIONS.departments).doc(position.departmentId).get()
-          if (deptDoc.exists) {
-            const deptData = deptDoc.data()!
-            department = {
-              id: deptDoc.id,
-              name: deptData.name,
-            }
-          }
+          const dept = await prisma.department.findUnique({
+            where: { id: position.departmentId },
+            select: { id: true, name: true },
+          })
+          department = dept
         }
 
         // Get active wage scales
-        const { WageScaleService } = await import('@/lib/services/payroll-service')
         const wageScales = await WageScaleService.findByChurch(church.id, position.id)
 
         // Get salary count
-        const salariesCount = await db.collection(COLLECTIONS.salaries)
-          .where('positionId', '==', position.id)
-          .count()
-          .get()
+        const salariesCount = await prisma.userSalary.count({
+          where: { positionId: position.id },
+        })
 
         return {
           ...position,
           department,
           wageScales: wageScales.slice(0, 1), // Get most recent
           _count: {
-            userSalaries: salariesCount.data().count || 0,
+            userSalaries: salariesCount,
           },
         }
       })
@@ -90,14 +84,9 @@ export async function POST(request: Request) {
     // Get department info
     let department = null
     if (position.departmentId) {
-      const deptDoc = await db.collection(COLLECTIONS.departments).doc(position.departmentId).get()
-      if (deptDoc.exists) {
-        const deptData = deptDoc.data()!
-        department = {
-          id: deptDoc.id,
-          ...deptData,
-        }
-      }
+      department = await prisma.department.findUnique({
+        where: { id: position.departmentId },
+      })
     }
 
     return NextResponse.json({

@@ -2,8 +2,7 @@
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { UserService } from '@/lib/services/user-service'
-import { db, FieldValue } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 function getBearerToken(req: Request): string | null {
   const auth = req.headers.get('authorization') || req.headers.get('Authorization')
@@ -39,9 +38,9 @@ export async function POST(request: Request) {
     const existingUser = await UserService.findByEmail(email)
 
     if (!existingUser) {
-      const superAdminSnapshot = await db.collection(COLLECTIONS.users).where('role', '==', 'SUPER_ADMIN').limit(1).get()
+      const superAdmin = await prisma.user.findFirst({ where: { role: 'SUPER_ADMIN' }, select: { id: true } })
 
-      if (!superAdminSnapshot.empty && !force) {
+      if (superAdmin && !force) {
         return NextResponse.json(
           {
             error: 'A superadmin already exists. Set {"force": true} to create another, or provide the existing superadmin email to reset it.',
@@ -70,12 +69,6 @@ export async function POST(request: Request) {
       role: 'SUPER_ADMIN',
       churchId: '',
     } as any)
-
-    await db.collection(COLLECTIONS.users).doc(existingUser.id).update({
-      role: 'SUPER_ADMIN',
-      churchId: '',
-      updatedAt: FieldValue.serverTimestamp(),
-    })
 
     const { password: _pw, ...userWithoutPassword } = updated
 

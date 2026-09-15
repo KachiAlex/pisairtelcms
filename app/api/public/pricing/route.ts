@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { SubscriptionPlanService } from '@/lib/services/subscription-service'
-import { SubscriptionPricingService } from '@/lib/services/subscription-pricing-service'
+import { SubscriptionPricingService, SubscriptionPromo } from '@/lib/services/subscription-pricing-service'
 import { LICENSING_PLANS } from '@/lib/licensing/plans'
 
 export const dynamic = 'force-dynamic'
@@ -53,8 +53,8 @@ function serializeFallbackPlan(config: typeof LICENSING_PLANS[number]) {
 
 export async function GET() {
   try {
-    let plans = []
-    let promos = []
+    let plans: Awaited<ReturnType<typeof SubscriptionPlanService.findAll>> = []
+    let promos: SubscriptionPromo[] = []
 
     try {
       plans = await SubscriptionPlanService.findAll()

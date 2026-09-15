@@ -6,8 +6,6 @@ import { PaymentService } from '@/lib/services/payment-service'
 import { SubscriptionPlanService, SubscriptionService } from '@/lib/services/subscription-service'
 import { SubscriptionPaymentService } from '@/lib/services/subscription-payment-service'
 import { SubscriptionPricingService } from '@/lib/services/subscription-pricing-service'
-import { db, FieldValue } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
 import { UserRole } from '@/types'
 
 const ALLOWED_ROLES: UserRole[] = ['ADMIN', 'PASTOR', 'SUPER_ADMIN', 'BRANCH_ADMIN']
@@ -54,10 +52,9 @@ export async function POST(request: Request) {
 
     // Free plans can switch immediately without payment
     if (amount <= 0) {
-      await db.collection(COLLECTIONS.subscriptions).doc(subscription.id).update({
+      await SubscriptionService.update(subscription.id, {
         planId,
-        status: subscription.status === 'SUSPENDED' ? 'ACTIVE' : subscription.status,
-        updatedAt: FieldValue.serverTimestamp(),
+        status: (subscription.status === 'SUSPENDED' ? 'ACTIVE' : subscription.status) as any,
       })
 
       const updated = await SubscriptionService.findByChurch(church.id)

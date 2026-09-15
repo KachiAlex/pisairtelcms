@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
 import { CheckInService } from '@/lib/services/checkin-service'
-import { EventService } from '@/lib/services/event-service'
+import { prisma } from '@/lib/prisma'
 import { getCurrentChurch } from '@/lib/church-context'
 import { generateQRCode } from '@/lib/qr-code'
 
@@ -67,23 +67,27 @@ export async function GET(request: Request) {
       checkIns = checkIns.filter(checkIn => checkIn.eventId === eventId)
     }
 
-    // Add event info
-    const checkInsWithEvents = await Promise.all(
-      checkIns.map(async (checkIn) => {
-        let event = null
-        if (checkIn.eventId) {
-          event = await EventService.findById(checkIn.eventId)
-        }
-        return {
-          ...checkIn,
-          event: event ? {
-            id: event.id,
-            title: event.title,
-            startDate: event.startDate,
-          } : null,
-        }
-      })
-    )
+    // Add event info — single batched query instead of N+1
+    const eventIds = [...new Set(checkIns.map((c) => c.eventId).filter(Boolean))] as string[]
+    const events = eventIds.length
+      ? await prisma.event.findMany({
+          where: { id: { in: eventIds } },
+          select: { id: true, title: true, startDate: true },
+        })
+      : []
+    const eventMap = new Map(events.map((e) => [e.id, e]))
+
+    const checkInsWithEvents = checkIns.map((checkIn) => {
+      const event = checkIn.eventId ? eventMap.get(checkIn.eventId) : null
+      return {
+        ...checkIn,
+        event: event ? {
+          id: event.id,
+          title: event.title,
+          startDate: event.startDate,
+        } : null,
+      }
+    })
 
     return NextResponse.json(checkInsWithEvents)
   } catch (error) {

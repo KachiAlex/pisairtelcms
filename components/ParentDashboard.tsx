@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { formatDate } from '@/lib/utils'
 import ChildrenCheckIn from './ChildrenCheckIn'
+import FamilyManager from './FamilyManager'
 
 interface Child {
   id: string
@@ -158,6 +159,10 @@ export default function ParentDashboard() {
           ))}
         </div>
       )}
+
+      <div className="mt-8">
+        <FamilyManager onChanged={loadChildren} />
+      </div>
 
       {/* Check-in Modal */}
       {selectedChild && (

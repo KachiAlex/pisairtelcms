@@ -1,8 +1,6 @@
+import { prisma } from './prisma'
 import { UserService } from './services/user-service'
 import { BadgeService, UserBadgeService } from './services/badge-service'
-import { ReadingPlanProgressService } from './services/reading-plan-service'
-import { db } from './firestore'
-import { COLLECTIONS } from './firestore-collections'
 
 /**
  * Award XP to a user
@@ -50,13 +48,31 @@ export async function checkAndAwardBadges(userId: string) {
   const userBadges = await UserBadgeService.findByUser(userId)
   const existingBadgeIds = new Set(userBadges.map((b) => b.badgeId))
 
-  // Get counts
-  const [prayerRequestsCount, sermonsWatchedCount, givingCount, eventsAttendedCount, volunteerShiftsCount] = await Promise.all([
-    db.collection(COLLECTIONS.prayerRequests).where('userId', '==', userId).count().get(),
-    db.collection(COLLECTIONS.sermonViews).where('userId', '==', userId).count().get(),
-    db.collection(COLLECTIONS.giving).where('userId', '==', userId).count().get(),
-    db.collection(COLLECTIONS.eventAttendances).where('userId', '==', userId).count().get(),
-    db.collection(COLLECTIONS.volunteerShifts).where('userId', '==', userId).count().get(),
+  // Get all counts up-front (loop-invariant)
+  const [
+    prayerRequestsCount,
+    sermonsWatchedCount,
+    givingCount,
+    eventsAttendedCount,
+    volunteerShiftsCount,
+    completedPlansCount,
+    visitorsBroughtCount,
+  ] = await Promise.all([
+    prisma.prayerRequest.count({ where: { userId } }),
+    prisma.sermonView.count({ where: { userId } }),
+    prisma.giving.count({ where: { userId } }),
+    prisma.eventAttendance.count({ where: { userId } }),
+    prisma.volunteerShift.count({ where: { userId } }),
+    prisma.readingPlanProgress.count({ where: { userId, completed: true } }),
+    prisma.user.count({
+      where: {
+        role: 'VISITOR',
+        OR: [
+          { parentId: userId },
+          { firestoreData: { path: ['parentId'], equals: userId } },
+        ],
+      },
+    }),
   ])
 
   // Get all badges
@@ -72,49 +88,38 @@ export async function checkAndAwardBadges(userId: string) {
     switch (badge.type) {
       case 'PRAYER_STREAK':
         // Check prayer streak (simplified - would need actual streak calculation)
-        if ((prayerRequestsCount.data().count || 0) >= 7) {
+        if (prayerRequestsCount >= 7) {
           shouldAward = true
         }
         break
 
       case 'READING_PLAN':
-        // Check reading plan completion
-        const completedPlansSnapshot = await db.collection(COLLECTIONS.readingPlanProgress)
-          .where('userId', '==', userId)
-          .where('completed', '==', true)
-          .count()
-          .get()
-        if ((completedPlansSnapshot.data().count || 0) >= 1) {
+        if (completedPlansCount >= 1) {
           shouldAward = true
         }
         break
 
       case 'GIVING':
-        if ((givingCount.data().count || 0) >= 10) {
+        if (givingCount >= 10) {
           shouldAward = true
         }
         break
 
       case 'EVENT_ATTENDANCE':
-        if ((eventsAttendedCount.data().count || 0) >= 5) {
+        if (eventsAttendedCount >= 5) {
           shouldAward = true
         }
         break
 
       case 'SERVING':
-        if ((volunteerShiftsCount.data().count || 0) >= 10) {
+        if (volunteerShiftsCount >= 10) {
           shouldAward = true
         }
         break
 
       case 'EVANGELISM':
         // Check if user has brought visitors (simplified)
-        const visitorsBroughtSnapshot = await db.collection(COLLECTIONS.users)
-          .where('parentId', '==', userId)
-          .where('role', '==', 'VISITOR')
-          .count()
-          .get()
-        if ((visitorsBroughtSnapshot.data().count || 0) >= 1) {
+        if (visitorsBroughtCount >= 1) {
           shouldAward = true
         }
         break
@@ -168,19 +173,19 @@ export async function getLeaderboard(
 
   // Filter by type
   if (type === 'department' && filterId) {
-    // Filter users in department
-    const departmentSnapshot = await db.collection(COLLECTIONS.departments).doc(filterId).get()
-    const department = departmentSnapshot.data()
-    if (department?.members) {
-      users = users.filter(user => department.members.includes(user.id))
-    }
+    const memberships = await prisma.departmentMembership.findMany({
+      where: { departmentId: filterId },
+      select: { userId: true },
+    })
+    const memberIds = new Set(memberships.map((m) => m.userId))
+    users = users.filter((user) => memberIds.has(user.id))
   } else if (type === 'group' && filterId) {
-    // Filter users in group
-    const groupSnapshot = await db.collection(COLLECTIONS.groups).doc(filterId).get()
-    const group = groupSnapshot.data()
-    if (group?.members) {
-      users = users.filter(user => group.members.includes(user.id))
-    }
+    const memberships = await prisma.groupMembership.findMany({
+      where: { groupId: filterId },
+      select: { userId: true },
+    })
+    const memberIds = new Set(memberships.map((m) => m.userId))
+    users = users.filter((user) => memberIds.has(user.id))
   } else if (type === 'family' && filterId) {
     // Filter family members
     users = users.filter(user => 
@@ -193,31 +198,29 @@ export async function getLeaderboard(
   // Sort by XP and get badges
   users = users.sort((a, b) => (b.xp || 0) - (a.xp || 0)).slice(0, 100)
 
-  const usersWithBadges = await Promise.all(
-    users.map(async (user) => {
-      const userBadges = await UserBadgeService.findByUser(user.id)
-      const badges = await Promise.all(
-        userBadges.map(async (ub) => {
-          const badge = await BadgeService.findById(ub.badgeId)
-          return badge
-        })
-      )
+  // Batch-load badges for all users in one query
+  const userIds = users.map((u) => u.id)
+  const allUserBadges = userIds.length
+    ? await prisma.userBadge.findMany({
+        where: { userId: { in: userIds } },
+        include: { badge: true },
+      })
+    : []
+  const badgesByUser = new Map<string, typeof allUserBadges>()
+  for (const ub of allUserBadges) {
+    const list = badgesByUser.get(ub.userId) || []
+    list.push(ub)
+    badgesByUser.set(ub.userId, list)
+  }
 
-      return {
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        profileImage: user.profileImage,
-        xp: user.xp || 0,
-        level: user.level || 1,
-        badges: badges.filter(Boolean).map(badge => ({ badge })),
-      }
-    })
-  )
-
-  return usersWithBadges.map((user, index) => ({
+  return users.map((user, index) => ({
     rank: index + 1,
-    ...user,
+    id: user.id,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    profileImage: user.profileImage,
+    xp: user.xp || 0,
+    level: user.level || 1,
+    badges: (badgesByUser.get(user.id) || []).map((ub) => ({ badge: ub.badge })),
   }))
 }
-

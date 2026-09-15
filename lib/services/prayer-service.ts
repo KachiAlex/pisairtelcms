@@ -31,7 +31,7 @@ const fromPrisma = (record: any): PrayerRequest => {
 const fromPrismaInteraction = (record: any): PrayerInteraction => {
   const { firestoreData, ...rest } = record
   const legacy = (firestoreData as Record<string, unknown>) || {}
-  return { ...legacy, ...rest } as PrayerInteraction
+  return { ...legacy, ...rest, requestId: record.prayerRequestId } as PrayerInteraction
 }
 
 export class PrayerRequestService {
@@ -64,7 +64,7 @@ export class PrayerRequestService {
     const records = await prisma.prayerRequest.findMany({
       where: {
         churchId,
-        status: options?.status || undefined,
+        status: (options?.status || undefined) as any,
       },
       orderBy: { createdAt: 'desc' },
       take: options?.limit || 20,
@@ -78,14 +78,14 @@ export class PrayerRequestService {
   static async incrementPrayerCount(id: string): Promise<void> {
     await prisma.prayerRequest.update({
       where: { id },
-      data: { prayerCount: { increment: 1 }, updatedAt: new Date() },
+      data: { prayerCount: { increment: 1 } },
     })
   }
 
   static async updateStatus(id: string, status: string): Promise<PrayerRequest> {
     const record = await prisma.prayerRequest.update({
       where: { id },
-      data: { status, updatedAt: new Date() },
+      data: { status: status as any },
     })
     return fromPrisma(record)
   }
@@ -94,20 +94,21 @@ export class PrayerRequestService {
 export class PrayerInteractionService {
   static async findByUserAndRequest(userId: string, requestId: string): Promise<PrayerInteraction | null> {
     const record = await prisma.prayerInteraction.findFirst({
-      where: { userId, requestId },
+      where: { userId, prayerRequestId: requestId },
     })
     if (!record) return null
     return fromPrismaInteraction(record)
   }
 
   static async create(data: Omit<PrayerInteraction, 'id' | 'createdAt'>): Promise<PrayerInteraction> {
+    const { requestId, ...rest } = data
     const record = await prisma.prayerInteraction.create({
       data: {
-        ...data,
-        createdAt: new Date(),
+        ...rest,
+        prayerRequestId: requestId,
       } as any,
     })
-    await PrayerRequestService.incrementPrayerCount(data.requestId)
+    await PrayerRequestService.incrementPrayerCount(requestId)
     return fromPrismaInteraction(record)
   }
 

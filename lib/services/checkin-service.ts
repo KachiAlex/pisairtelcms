@@ -1,7 +1,4 @@
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { Query } from 'firebase-admin/firestore'
-import { FieldValue } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
 
 export interface CheckIn {
   id: string
@@ -13,91 +10,57 @@ export interface CheckIn {
   createdAt: Date
 }
 
-export class CheckInService {
-  static async findByUser(userId: string, limit?: number): Promise<CheckIn[]> {
-    let query = db.collection(COLLECTIONS.checkIns)
-      .where('userId', '==', userId)
-      .orderBy('checkedInAt', 'desc')
-    
-    if (limit) {
-      query = query.limit(limit) as Query
-    }
-
-    const snapshot = await query.get()
-    return snapshot.docs.map((doc: any) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        checkedInAt: toDate(data.checkedInAt),
-        createdAt: toDate(data.createdAt),
-      } as CheckIn
-    })
-  }
-
-  static async findByEvent(eventId: string): Promise<CheckIn[]> {
-    const snapshot = await db.collection(COLLECTIONS.checkIns)
-      .where('eventId', '==', eventId)
-      .orderBy('checkedInAt', 'desc')
-      .get()
-
-    return snapshot.docs.map((doc: any) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        checkedInAt: toDate(data.checkedInAt),
-        createdAt: toDate(data.createdAt),
-      } as CheckIn
-    })
-  }
-
-  static async countByChurch(churchId: string, startDate?: Date): Promise<number> {
-    // Get all users in church
-    const usersSnapshot = await db.collection(COLLECTIONS.users)
-      .where('churchId', '==', churchId)
-      .select()
-      .get()
-
-    const userIds = usersSnapshot.docs.map((doc: any) => doc.id)
-
-    if (userIds.length === 0) return 0
-
-    // Count check-ins for these users
-    let count = 0
-    for (const userId of userIds) {
-      let query: Query = db.collection(COLLECTIONS.checkIns)
-        .where('userId', '==', userId)
-      
-      if (startDate) {
-        query = query.where('checkedInAt', '>=', startDate)
-      }
-
-      const snapshot = await query.count().get()
-      count += snapshot.data().count || 0
-    }
-
-    return count
-  }
-
-  static async create(data: Omit<CheckIn, 'id' | 'createdAt'>): Promise<CheckIn> {
-    const checkInData = {
-      ...data,
-      checkedInAt: data.checkedInAt instanceof Date ? data.checkedInAt : new Date(data.checkedInAt),
-      createdAt: FieldValue.serverTimestamp(),
-    }
-
-    const docRef = db.collection(COLLECTIONS.checkIns).doc()
-    await docRef.set(checkInData)
-
-    const created = await docRef.get()
-    const createdData = created.data()!
-    return {
-      id: created.id,
-      ...createdData,
-      checkedInAt: toDate(createdData.checkedInAt),
-      createdAt: toDate(createdData.createdAt),
-    } as CheckIn
+function checkInFromPrisma(record: any): CheckIn {
+  return {
+    id: record.id,
+    userId: record.userId,
+    eventId: record.eventId ?? undefined,
+    checkedInAt: record.checkedInAt,
+    location: record.location ?? undefined,
+    qrCode: record.qrCode ?? undefined,
+    createdAt: record.createdAt ?? record.checkedInAt,
   }
 }
 
+export class CheckInService {
+  static async findByUser(userId: string, limit?: number): Promise<CheckIn[]> {
+    const records = await prisma.checkIn.findMany({
+      where: { userId },
+      orderBy: { checkedInAt: 'desc' },
+      take: limit,
+    })
+    return records.map(checkInFromPrisma)
+  }
+
+  static async findByEvent(eventId: string): Promise<CheckIn[]> {
+    const records = await prisma.checkIn.findMany({
+      where: { eventId },
+      orderBy: { checkedInAt: 'desc' },
+    })
+    return records.map(checkInFromPrisma)
+  }
+
+  static async countByChurch(churchId: string, startDate?: Date): Promise<number> {
+    // Single query via the user relation — no per-user loop
+    return prisma.checkIn.count({
+      where: {
+        user: { churchId },
+        ...(startDate ? { checkedInAt: { gte: startDate } } : {}),
+      },
+    })
+  }
+
+  static async create(data: Omit<CheckIn, 'id' | 'createdAt'>): Promise<CheckIn> {
+    const record = await prisma.checkIn.create({
+      data: {
+        userId: data.userId,
+        eventId: data.eventId ?? null,
+        qrCode: data.qrCode ?? `ci-${Date.now()}`,
+        location: data.location ?? null,
+        checkedInAt:
+          data.checkedInAt instanceof Date ? data.checkedInAt : new Date(data.checkedInAt),
+      },
+    })
+    return checkInFromPrisma(record)
+  }
+}

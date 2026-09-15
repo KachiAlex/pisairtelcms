@@ -1,8 +1,7 @@
 
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { ChurchGoogleService, getGoogleOAuthClient } from '@/lib/services/church-google-service'
 
 export async function GET(request: Request) {
@@ -14,22 +13,19 @@ export async function GET(request: Request) {
     return NextResponse.redirect(new URL('/meetings?google=error', url.origin))
   }
 
-  const stateRef = db.collection(COLLECTIONS.churchGoogleOauthStates).doc(state)
-  const stateDoc = await stateRef.get()
+  const stateRecord = await prisma.churchGoogleOauthState.findUnique({ where: { state } })
 
-  if (!stateDoc.exists) {
+  if (!stateRecord) {
     return NextResponse.redirect(new URL('/meetings?google=expired', url.origin))
   }
 
-  const stateData = stateDoc.data()!
-  const expiresAt = stateData.expiresAt ? toDate(stateData.expiresAt) : null
-  if (expiresAt && expiresAt.getTime() < Date.now()) {
-    await stateRef.delete().catch(() => null)
+  if (stateRecord.expiresAt.getTime() < Date.now()) {
+    await prisma.churchGoogleOauthState.delete({ where: { id: stateRecord.id } }).catch(() => null)
     return NextResponse.redirect(new URL('/meetings?google=expired', url.origin))
   }
 
-  const churchId = String(stateData.churchId || '')
-  const connectedByUserId = String(stateData.userId || '')
+  const churchId = stateRecord.churchId
+  const connectedByUserId = stateRecord.userId
 
   const oauth = getGoogleOAuthClient()
   const tokenResponse = await oauth.getToken(code)
@@ -46,7 +42,7 @@ export async function GET(request: Request) {
     calendarId: 'primary',
   })
 
-  await stateRef.delete().catch(() => null)
+  await prisma.churchGoogleOauthState.delete({ where: { id: stateRecord.id } }).catch(() => null)
 
   return NextResponse.redirect(new URL('/meetings?google=connected', url.origin))
 }

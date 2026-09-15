@@ -100,7 +100,7 @@ export default async function DashboardLayout({
         <div className="fixed inset-y-0 left-0 z-50 w-72 bg-white/80 backdrop-blur-xl border-r border-gray-200/50 flex flex-col shadow-xl">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-3 px-6 py-6 border-b border-gray-200/50">
-            <div className="relative">
+            <div className="relative shrink-0">
               <div className="absolute inset-0 bg-gradient-to-br from-primary-600 to-primary-700 rounded-xl blur opacity-50"></div>
               <div className="relative w-12 h-12 bg-gradient-to-br from-primary-600 to-primary-700 rounded-xl flex items-center justify-center shadow-lg">
                 {activeChurch?.logo ? (
@@ -110,8 +110,8 @@ export default async function DashboardLayout({
                 )}
               </div>
             </div>
-            <div>
-              <span className="text-xl font-bold bg-gradient-to-r from-primary-600 to-primary-700 bg-clip-text text-transparent">
+            <div className="min-w-0">
+              <span className="block text-xl font-bold bg-gradient-to-r from-primary-600 to-primary-700 bg-clip-text text-transparent truncate">
                 {brandName}
               </span>
               <p className="text-xs text-gray-500 font-medium truncate">{brandTagline}</p>
@@ -162,13 +162,13 @@ export default async function DashboardLayout({
 
           {/* Top Bar */}
           <header className="sticky top-0 z-40 bg-white/70 backdrop-blur-xl border-b border-gray-200/50 shadow-sm">
-            <div className="px-8 py-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+            <div className="px-8 py-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <h1 className="text-2xl lg:text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
                     Welcome back!
                   </h1>
-                  <p className="text-sm text-gray-600 mt-1 font-medium">
+                  <p className="text-xs lg:text-sm text-gray-600 mt-1 font-medium">
                     {new Date().toLocaleDateString('en-US', {
                       weekday: 'long',
                       year: 'numeric',
@@ -177,7 +177,7 @@ export default async function DashboardLayout({
                     })}
                   </p>
                 </div>
-                <div className="flex w-full flex-wrap items-center justify-end gap-4 lg:max-w-lg">
+                <div className="flex items-center gap-4 shrink-0">
                   <details className="relative [&_summary::-webkit-details-marker]:hidden">
                     <summary className="cursor-pointer list-none">
                       {profileImage ? (

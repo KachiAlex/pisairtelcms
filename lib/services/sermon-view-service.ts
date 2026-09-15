@@ -1,6 +1,4 @@
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
 
 export interface SermonView {
   id: string
@@ -21,111 +19,50 @@ export interface SermonDownload {
 
 export class SermonViewService {
   static async findByUserAndSermon(userId: string, sermonId: string): Promise<SermonView | null> {
-    const snapshot = await db.collection(COLLECTIONS.sermonViews)
-      .where('userId', '==', userId)
-      .where('sermonId', '==', sermonId)
-      .limit(1)
-      .get()
-
-    if (snapshot.empty) return null
-
-    const doc = snapshot.docs[0]
-    const data = doc.data()
-    return {
-      id: doc.id,
-      watchedDuration: data.watchedDuration || 0,
-      completed: data.completed || false,
-      ...data,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as SermonView
+    const record = await prisma.sermonView.findFirst({
+      where: { userId, sermonId },
+    })
+    return (record as SermonView) ?? null
   }
 
   static async upsert(userId: string, sermonId: string, watchedDuration: number, completed: boolean): Promise<SermonView> {
-    // Check if exists
     const existing = await this.findByUserAndSermon(userId, sermonId)
 
     if (existing) {
-      // Update
-      await db.collection(COLLECTIONS.sermonViews).doc(existing.id).update({
-        watchedDuration,
-        completed,
-        updatedAt: FieldValue.serverTimestamp(),
+      const record = await prisma.sermonView.update({
+        where: { id: existing.id },
+        data: { watchedDuration, completed },
       })
-      const updated = await db.collection(COLLECTIONS.sermonViews).doc(existing.id).get()
-      const data = updated.data()!
-      return {
-        id: updated.id,
-        ...data,
-        createdAt: toDate(data.createdAt),
-        updatedAt: toDate(data.updatedAt),
-      } as SermonView
-    } else {
-      // Create
-      const viewData = {
-        userId,
-        sermonId,
-        watchedDuration,
-        completed,
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      }
-
-      const docRef = db.collection(COLLECTIONS.sermonViews).doc()
-      await docRef.set(viewData)
-
-      await db.collection(COLLECTIONS.sermons).doc(sermonId).update({
-        viewsCount: FieldValue.increment(1),
-      })
-
-      const created = await docRef.get()
-      const createdData = created.data()!
-      return {
-        id: created.id,
-        ...createdData,
-        createdAt: toDate(createdData.createdAt),
-        updatedAt: toDate(createdData.updatedAt),
-      } as SermonView
+      return record as SermonView
     }
+
+    const [record] = await prisma.$transaction([
+      prisma.sermonView.create({
+        data: { userId, sermonId, watchedDuration, completed },
+      }),
+      prisma.sermon.update({
+        where: { id: sermonId },
+        data: { viewsCount: { increment: 1 } },
+      }),
+    ])
+    return record as SermonView
   }
 
   static async findByUser(userId: string): Promise<SermonView[]> {
-    const snapshot = await db.collection(COLLECTIONS.sermonViews)
-      .where('userId', '==', userId)
-      .orderBy('updatedAt', 'desc')
-      .get()
-
-    return snapshot.docs.map((doc: any) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        watchedDuration: data.watchedDuration || 0,
-        completed: data.completed || false,
-        ...data,
-        createdAt: toDate(data.createdAt),
-        updatedAt: toDate(data.updatedAt),
-      } as SermonView
+    const records = await prisma.sermonView.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
     })
+    return records as SermonView[]
   }
 }
 
 export class SermonDownloadService {
   static async findByUserAndSermon(userId: string, sermonId: string): Promise<SermonDownload | null> {
-    const snapshot = await db.collection(COLLECTIONS.sermonDownloads)
-      .where('userId', '==', userId)
-      .where('sermonId', '==', sermonId)
-      .limit(1)
-      .get()
-
-    if (snapshot.empty) return null
-
-    const doc = snapshot.docs[0]
-    const data = doc.data()
-    return {
-      id: doc.id,
-      ...data,
-      downloadedAt: toDate(data.downloadedAt),
-    } as SermonDownload
+    const record = await prisma.sermonDownload.findFirst({
+      where: { userId, sermonId },
+    })
+    return (record as SermonDownload) ?? null
   }
 
   static async create(userId: string, sermonId: string): Promise<SermonDownload> {
@@ -135,26 +72,16 @@ export class SermonDownloadService {
       return existing
     }
 
-    const downloadData = {
-      userId,
-      sermonId,
-      downloadedAt: FieldValue.serverTimestamp(),
-    }
+    const [record] = await prisma.$transaction([
+      prisma.sermonDownload.create({
+        data: { userId, sermonId },
+      }),
+      prisma.sermon.update({
+        where: { id: sermonId },
+        data: { downloadsCount: { increment: 1 } },
+      }),
+    ])
 
-    const docRef = db.collection(COLLECTIONS.sermonDownloads).doc()
-    await docRef.set(downloadData)
-
-    await db.collection(COLLECTIONS.sermons).doc(sermonId).update({
-      downloadsCount: FieldValue.increment(1),
-    })
-
-    const created = await docRef.get()
-    const createdData = created.data()!
-    return {
-      id: created.id,
-      ...createdData,
-      downloadedAt: toDate(createdData.downloadedAt),
-    } as SermonDownload
+    return record as SermonDownload
   }
 }
-

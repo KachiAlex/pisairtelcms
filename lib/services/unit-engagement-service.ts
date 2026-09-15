@@ -1,6 +1,5 @@
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 import type { MessageAttachment, MessageVoiceNote } from '@/lib/services/message-service'
 
 export type UnitInteractionRule = {
@@ -100,165 +99,144 @@ export type UnitPollVote = {
   createdAt: Date
 }
 
+const toUnitSettings = (record: any): UnitSettings => ({
+  ...DEFAULT_UNIT_SETTINGS,
+  ...record,
+  rules: (record.rules as UnitInteractionRule[]) ?? [],
+})
+
+const toUnitMessage = (record: any): UnitMessage => ({
+  ...record,
+  attachments: (record.attachments as MessageAttachment[]) ?? undefined,
+  voiceNote: (record.voiceNote as MessageVoiceNote) ?? undefined,
+  metadata: (record.metadata as UnitMessage['metadata']) ?? undefined,
+})
+
+const toUnitPoll = (record: any): UnitPoll => ({
+  ...record,
+  description: record.description ?? undefined,
+  options: Array.isArray(record.options) ? record.options : [],
+  status: record.status as 'OPEN' | 'CLOSED',
+})
+
 export class UnitSettingsService {
   static async get(unitId: string): Promise<UnitSettings | null> {
-    const doc = await db.collection(COLLECTIONS.unitSettings).where('unitId', '==', unitId).limit(1).get()
-    if (doc.empty) return null
-    const snapshot = doc.docs[0]
-    const data = snapshot.data()
-    return {
-      id: snapshot.id,
-      ...DEFAULT_UNIT_SETTINGS,
-      ...data,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as UnitSettings
+    const record = await prisma.unitSettings.findUnique({ where: { unitId } })
+    return record ? toUnitSettings(record) : null
   }
 
   static async getOrCreate(churchId: string, unitId: string): Promise<UnitSettings> {
-    const existing = await this.get(unitId)
-    if (existing) return existing
-
-    const payload = {
-      churchId,
-      unitId,
-      ...DEFAULT_UNIT_SETTINGS,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-    const ref = db.collection(COLLECTIONS.unitSettings).doc()
-    await ref.set(payload)
-    return (await this.get(unitId)) as UnitSettings
+    const record = await prisma.unitSettings.upsert({
+      where: { unitId },
+      create: {
+        churchId,
+        unitId,
+        ...DEFAULT_UNIT_SETTINGS,
+        rules: [] as Prisma.InputJsonValue,
+      },
+      update: {},
+    })
+    return toUnitSettings(record)
   }
 
   static async update(unitId: string, patch: UnitSettingsPatch): Promise<UnitSettings> {
-    const snapshot = await db.collection(COLLECTIONS.unitSettings).where('unitId', '==', unitId).limit(1).get()
-    if (snapshot.empty) {
-      throw new Error('Unit settings not found')
-    }
-    const ref = snapshot.docs[0].ref
-    await ref.update({
-      ...patch,
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.unitSettings.update({
+      where: { unitId },
+      data: {
+        ...(patch.allowMedia !== undefined ? { allowMedia: patch.allowMedia } : {}),
+        ...(patch.allowPolls !== undefined ? { allowPolls: patch.allowPolls } : {}),
+        ...(patch.allowShares !== undefined ? { allowShares: patch.allowShares } : {}),
+        ...(patch.pinnedRules !== undefined ? { pinnedRules: patch.pinnedRules } : {}),
+        ...(patch.rules !== undefined ? { rules: patch.rules as Prisma.InputJsonValue } : {}),
+      },
     })
-    const updated = await ref.get()
-    const data = updated.data()!
-    return {
-      id: updated.id,
-      ...DEFAULT_UNIT_SETTINGS,
-      ...data,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as UnitSettings
+    return toUnitSettings(record)
   }
 }
 
 export class UnitMessageService {
   static async create(input: CreateUnitMessageInput): Promise<UnitMessage> {
-    const payload = {
-      ...input,
-      pinned: false,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-    const ref = db.collection(COLLECTIONS.unitMessages).doc()
-    await ref.set(payload)
-    const created = await ref.get()
-    const data = created.data()!
-    return {
-      id: created.id,
-      ...data,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as UnitMessage
+    const record = await prisma.unitMessage.create({
+      data: {
+        unitId: input.unitId,
+        churchId: input.churchId,
+        userId: input.userId,
+        content: input.content,
+        attachments: (input.attachments ?? Prisma.JsonNull) as unknown as Prisma.InputJsonValue,
+        voiceNote: (input.voiceNote ?? Prisma.JsonNull) as unknown as Prisma.InputJsonValue,
+        metadata: input.metadata as Prisma.InputJsonValue,
+        pinned: false,
+      },
+    })
+    return toUnitMessage(record)
   }
 
   static async listByUnit(unitId: string, limit: number = 100): Promise<UnitMessage[]> {
-    const snapshot = await db
-      .collection(COLLECTIONS.unitMessages)
-      .where('unitId', '==', unitId)
-      .orderBy('createdAt', 'asc')
-      .limit(limit)
-      .get()
-
-    return snapshot.docs.map((doc) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        createdAt: toDate(data.createdAt),
-        updatedAt: toDate(data.updatedAt),
-      } as UnitMessage
+    const records = await prisma.unitMessage.findMany({
+      where: { unitId },
+      orderBy: { createdAt: 'asc' },
+      take: limit,
     })
+    return records.map(toUnitMessage)
   }
 
   static async updateMessage(unitId: string, messageId: string, patch: Partial<Pick<UnitMessage, 'content' | 'pinned'>>): Promise<UnitMessage> {
-    const ref = db.collection(COLLECTIONS.unitMessages).doc(messageId)
-    await ref.update({
-      ...patch,
-      updatedAt: FieldValue.serverTimestamp(),
-    })
-    const updated = await ref.get()
-    const data = updated.data()!
-    if (data.unitId !== unitId) {
+    const existing = await prisma.unitMessage.findUnique({ where: { id: messageId } })
+    if (!existing || existing.unitId !== unitId) {
       throw new Error('Message does not belong to unit')
     }
-    return {
-      id: updated.id,
-      ...data,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as UnitMessage
+    const record = await prisma.unitMessage.update({
+      where: { id: messageId },
+      data: {
+        ...(patch.content !== undefined ? { content: patch.content } : {}),
+        ...(patch.pinned !== undefined ? { pinned: patch.pinned } : {}),
+      },
+    })
+    return toUnitMessage(record)
   }
 }
 
 export class UnitPollService {
   static async findById(id: string): Promise<UnitPoll | null> {
-    const snapshot = await db.collection(COLLECTIONS.unitPolls).doc(id).get()
-    if (!snapshot.exists) return null
-    return this.toUnitPoll(snapshot)
+    const record = await prisma.unitPoll.findUnique({ where: { id } })
+    return record ? toUnitPoll(record) : null
   }
 
   static async create(input: CreateUnitPollInput): Promise<UnitPoll> {
-    const payload = {
-      unitId: input.unitId,
-      churchId: input.churchId,
-      question: input.question,
-      description: input.description || null,
-      options: input.options.map((option, idx) => ({
-        id: `${idx + 1}`,
-        label: option.label,
-        votes: 0,
-      })),
-      allowMultiple: input.allowMultiple ?? false,
-      allowComments: input.allowComments ?? false,
-      status: 'OPEN' as const,
-      createdByUserId: input.createdByUserId,
-      closesAt: input.closesAt ?? null,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-    const ref = db.collection(COLLECTIONS.unitPolls).doc()
-    await ref.set(payload)
-    const created = await ref.get()
-    return this.toUnitPoll(created)
+    const record = await prisma.unitPoll.create({
+      data: {
+        unitId: input.unitId,
+        churchId: input.churchId,
+        question: input.question,
+        description: input.description || null,
+        options: input.options.map((option, idx) => ({
+          id: `${idx + 1}`,
+          label: option.label,
+          votes: 0,
+        })) as Prisma.InputJsonValue,
+        allowMultiple: input.allowMultiple ?? false,
+        allowComments: input.allowComments ?? false,
+        status: 'OPEN',
+        createdByUserId: input.createdByUserId,
+        closesAt: input.closesAt ?? null,
+      },
+    })
+    return toUnitPoll(record)
   }
 
   static async findByUnit(unitId: string, limit: number = 50): Promise<UnitPoll[]> {
-    const snapshot = await db
-      .collection(COLLECTIONS.unitPolls)
-      .where('unitId', '==', unitId)
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .get()
-    return snapshot.docs.map((doc) => this.toUnitPoll(doc))
+    const records = await prisma.unitPoll.findMany({
+      where: { unitId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    })
+    return records.map(toUnitPoll)
   }
 
   static async vote(pollId: string, userId: string, optionIds: string[]): Promise<UnitPoll> {
-    const pollRef = db.collection(COLLECTIONS.unitPolls).doc(pollId)
-    const pollSnapshot = await pollRef.get()
-    if (!pollSnapshot.exists) throw new Error('Poll not found')
-    const poll = this.toUnitPoll(pollSnapshot)
+    const pollRecord = await prisma.unitPoll.findUnique({ where: { id: pollId } })
+    if (!pollRecord) throw new Error('Poll not found')
+    const poll = toUnitPoll(pollRecord)
     if (poll.status === 'CLOSED') throw new Error('Poll is closed')
 
     const dedupedOptionIds = Array.from(new Set(optionIds))
@@ -271,53 +249,42 @@ export class UnitPollService {
       throw new Error('Invalid option selection')
     }
 
-    const voteRef = db.collection(COLLECTIONS.unitPollVotes).doc(`${pollId}-${userId}`)
-    const existingVote = await voteRef.get()
-    if (existingVote.exists) {
+    const existingVote = await prisma.unitPollVote.findUnique({
+      where: { pollId_userId: { pollId, userId } },
+    })
+    if (existingVote) {
       throw new Error('You have already voted on this poll')
     }
 
-    // record vote
-    await voteRef.set({
-      pollId,
-      unitId: poll.unitId,
-      userId,
-      optionIds: dedupedOptionIds,
-      createdAt: FieldValue.serverTimestamp(),
-    })
+    // Record vote + update counts atomically
+    const [updatedPoll] = await prisma.$transaction([
+      prisma.unitPoll.update({
+        where: { id: pollId },
+        data: {
+          options: poll.options.map((opt) => ({
+            ...opt,
+            votes: dedupedOptionIds.includes(opt.id) ? opt.votes + 1 : opt.votes,
+          })) as Prisma.InputJsonValue,
+        },
+      }),
+      prisma.unitPollVote.create({
+        data: {
+          pollId,
+          unitId: poll.unitId,
+          userId,
+          optionIds: dedupedOptionIds,
+        },
+      }),
+    ])
 
-    // update counts
-    await pollRef.update({
-      options: poll.options.map((opt) => ({
-        ...opt,
-        votes: dedupedOptionIds.includes(opt.id) ? opt.votes + 1 : opt.votes,
-      })),
-      updatedAt: FieldValue.serverTimestamp(),
-    })
-
-    const updated = await pollRef.get()
-    return this.toUnitPoll(updated)
+    return toUnitPoll(updatedPoll)
   }
 
   static async close(pollId: string): Promise<UnitPoll> {
-    const pollRef = db.collection(COLLECTIONS.unitPolls).doc(pollId)
-    await pollRef.update({
-      status: 'CLOSED',
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.unitPoll.update({
+      where: { id: pollId },
+      data: { status: 'CLOSED' },
     })
-    const updated = await pollRef.get()
-    return this.toUnitPoll(updated)
-  }
-
-  private static toUnitPoll(doc: FirebaseFirestore.DocumentSnapshot<FirebaseFirestore.DocumentData>): UnitPoll {
-    const data = doc.data()!
-    return {
-      id: doc.id,
-      ...data,
-      options: Array.isArray(data.options) ? data.options : [],
-      closesAt: data.closesAt ? toDate(data.closesAt) : null,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as UnitPoll
+    return toUnitPoll(record)
   }
 }

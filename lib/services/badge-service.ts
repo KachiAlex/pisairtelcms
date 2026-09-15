@@ -1,7 +1,4 @@
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { Query } from 'firebase-admin/firestore'
-import { FieldValue } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
 
 export interface Badge {
   id: string
@@ -21,128 +18,98 @@ export interface UserBadge {
   earnedAt: Date
 }
 
+const BADGE_TYPES = [
+  'PRAYER_STREAK',
+  'READING_PLAN',
+  'GIVING',
+  'EVENT_ATTENDANCE',
+  'SERVING',
+  'EVANGELISM',
+  'OTHER',
+] as const
+
+function toBadgeType(value: unknown): (typeof BADGE_TYPES)[number] {
+  const v = String(value || '').toUpperCase()
+  return (BADGE_TYPES as readonly string[]).includes(v)
+    ? (v as (typeof BADGE_TYPES)[number])
+    : 'OTHER'
+}
+
+function fromPrismaBadge(record: any): Badge {
+  return {
+    id: record.id,
+    name: record.name,
+    description: record.description ?? undefined,
+    type: record.type,
+    icon: record.icon ?? undefined,
+    xpReward: record.xpReward ?? 0,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  }
+}
+
 export class BadgeService {
   static async findById(id: string): Promise<Badge | null> {
-    const doc = await db.collection(COLLECTIONS.badges).doc(id).get()
-    if (!doc.exists) return null
-    
-    const data = doc.data()!
-    return {
-      id: doc.id,
-      xpReward: data.xpReward || 0,
-      ...data,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as Badge
+    const record = await prisma.badge.findUnique({ where: { id } })
+    return record ? fromPrismaBadge(record) : null
   }
 
   static async findAll(type?: string): Promise<Badge[]> {
-    let query: Query = db.collection(COLLECTIONS.badges)
-    
-    if (type) {
-      query = query.where('type', '==', type)
-    }
-
-    const snapshot = await query.orderBy('createdAt', 'desc').get()
-
-    return snapshot.docs.map((doc: any) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        xpReward: data.xpReward || 0,
-        ...data,
-        createdAt: toDate(data.createdAt),
-        updatedAt: toDate(data.updatedAt),
-      } as Badge
+    const records = await prisma.badge.findMany({
+      where: type ? { type: toBadgeType(type) } : undefined,
+      orderBy: { createdAt: 'desc' },
     })
+    return records.map(fromPrismaBadge)
   }
 
   static async create(data: Omit<Badge, 'id' | 'createdAt' | 'updatedAt'>): Promise<Badge> {
-    const badgeData = {
-      ...data,
-      xpReward: data.xpReward || 0,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    const docRef = db.collection(COLLECTIONS.badges).doc()
-    await docRef.set(badgeData)
-
-    const created = await docRef.get()
-    const createdData = created.data()!
-    return {
-      id: created.id,
-      ...createdData,
-      createdAt: toDate(createdData.createdAt),
-      updatedAt: toDate(createdData.updatedAt),
-    } as Badge
+    const record = await prisma.badge.create({
+      data: {
+        name: data.name,
+        description: data.description ?? null,
+        type: toBadgeType(data.type),
+        icon: data.icon ?? null,
+        xpReward: data.xpReward || 0,
+      },
+    })
+    return fromPrismaBadge(record)
   }
 }
 
 export class UserBadgeService {
   static async findByUser(userId: string): Promise<UserBadge[]> {
-    const snapshot = await db
-      .collection(COLLECTIONS.userBadges)
-      .where('userId', '==', userId)
-      .get()
-
-    return snapshot.docs
-      .map((doc: any) => {
-        const data = doc.data()
-        return {
-          id: doc.id,
-          ...data,
-          earnedAt: toDate(data.earnedAt),
-        } as UserBadge
-      })
-      .sort((a, b) => {
-        const aTime = a.earnedAt?.getTime?.() ?? 0
-        const bTime = b.earnedAt?.getTime?.() ?? 0
-        return bTime - aTime
-      })
+    const records = await prisma.userBadge.findMany({
+      where: { userId },
+      orderBy: { earnedAt: 'desc' },
+    })
+    return records.map((r) => ({
+      id: r.id,
+      userId: r.userId,
+      badgeId: r.badgeId,
+      earnedAt: r.earnedAt,
+    }))
   }
 
   static async findByUserAndBadge(userId: string, badgeId: string): Promise<UserBadge | null> {
-    const snapshot = await db.collection(COLLECTIONS.userBadges)
-      .where('userId', '==', userId)
-      .where('badgeId', '==', badgeId)
-      .limit(1)
-      .get()
-
-    if (snapshot.empty) return null
-
-    const doc = snapshot.docs[0]
-    const data = doc.data()
-    return {
-      id: doc.id,
-      ...data,
-      earnedAt: toDate(data.earnedAt),
-    } as UserBadge
+    const record = await prisma.userBadge.findUnique({
+      where: { userId_badgeId: { userId, badgeId } },
+    })
+    return record
+      ? { id: record.id, userId: record.userId, badgeId: record.badgeId, earnedAt: record.earnedAt }
+      : null
   }
 
   static async create(userId: string, badgeId: string): Promise<UserBadge> {
-    // Check if already earned
-    const existing = await this.findByUserAndBadge(userId, badgeId)
-    if (existing) {
-      return existing
-    }
-
-    const badgeData = {
-      userId,
-      badgeId,
-      earnedAt: FieldValue.serverTimestamp(),
-    }
-
-    const docRef = db.collection(COLLECTIONS.userBadges).doc()
-    await docRef.set(badgeData)
-
-    const created = await docRef.get()
-    const createdData = created.data()!
+    const record = await prisma.userBadge.upsert({
+      where: { userId_badgeId: { userId, badgeId } },
+      update: {},
+      create: { userId, badgeId },
+    })
     return {
-      id: created.id,
-      ...createdData,
-      earnedAt: toDate(createdData.earnedAt),
-    } as UserBadge
+      id: record.id,
+      userId: record.userId,
+      badgeId: record.badgeId,
+      earnedAt: record.earnedAt,
+    }
   }
 }
-

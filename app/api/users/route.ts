@@ -50,63 +50,45 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const roleFilter = searchParams.get('role')
+    const rolesParam = searchParams.get('roles')
     const designationFilter = searchParams.get('designationId')
     const search = searchParams.get('search')
     const branchId = searchParams.get('branchId')
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '20')
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1') || 1)
+    const limit = Math.max(1, parseInt(searchParams.get('limit') || '20') || 20)
     const staffFilter = searchParams.get('isStaff')
 
-    // Get users by church
-    let users = await UserService.findByChurch(church.id, limit * page) // Get more to filter
+    const VALID_ROLES = new Set([
+      'VISITOR', 'MEMBER', 'VOLUNTEER', 'LEADER', 'BRANCH_ADMIN', 'PASTOR', 'ADMIN', 'SUPER_ADMIN',
+    ])
+    const roles = rolesParam
+      ? rolesParam.split(',').map((r) => r.trim().toUpperCase()).filter((r) => VALID_ROLES.has(r))
+      : null
+    const normalizedRoleFilter = roleFilter && VALID_ROLES.has(roleFilter.toUpperCase())
+      ? roleFilter.toUpperCase()
+      : null
 
-    // Filter by branch
-    if (branchId) {
-      users = users.filter(user => (user as any).branchId === branchId)
-    }
-
-    // Filter by role
-    if (roleFilter) {
-      users = users.filter(user => user.role === roleFilter)
-    }
-
-    if (staffFilter === 'true') {
-      users = users.filter((user: any) => Boolean(user.isStaff))
-    } else if (staffFilter === 'false') {
-      users = users.filter((user: any) => !user.isStaff)
-    }
-
-    // Filter by designation
-    if (designationFilter) {
-      users = users.filter((user) => (user as any).designationId === designationFilter)
-    }
-
-    // Filter by search
-    if (search) {
-      users = await UserService.search(church.id, search)
-      // Re-apply branch filter after search
-      if (branchId) {
-        users = users.filter(user => (user as any).branchId === branchId)
-      }
-      if (designationFilter) {
-        users = users.filter((user) => (user as any).designationId === designationFilter)
-      }
-    }
-
-    // Paginate
-    const skip = (page - 1) * limit
-    const paginatedUsers = users.slice(skip, skip + limit)
+    const { users, total } = await UserService.queryByChurch(church.id, {
+      branchId,
+      role: normalizedRoleFilter,
+      roles,
+      search,
+      designationId: designationFilter,
+      isStaff: staffFilter === 'true' ? true : staffFilter === 'false' ? false : null,
+      page,
+      limit,
+    })
 
     // Remove password from response
-    const usersWithoutPassword = paginatedUsers.map(({ password, ...user }) => user)
+    const usersWithoutPassword = users.map(({ password, ...user }) => user)
 
     return NextResponse.json({
       users: usersWithoutPassword,
       pagination: {
         page,
         limit,
-        total: users.length,
-        totalPages: Math.ceil(users.length / limit),
+        total,
+        totalPages: Math.ceil(total / limit),
       },
     })
   } catch (error) {
@@ -183,11 +165,18 @@ export async function POST(request: Request) {
     }
 
     // Determine role - admins can create any role except SUPER_ADMIN
+    const STORABLE_ROLES = ['VISITOR', 'MEMBER', 'VOLUNTEER', 'LEADER', 'PASTOR', 'BRANCH_ADMIN', 'ADMIN']
     let finalRole = newUserRole || 'MEMBER'
     if (finalRole === 'SUPER_ADMIN') {
       return NextResponse.json(
         { error: 'Cannot create super admin users' },
         { status: 403 }
+      )
+    }
+    if (!STORABLE_ROLES.includes(finalRole)) {
+      return NextResponse.json(
+        { error: `Invalid role: ${finalRole}` },
+        { status: 400 }
       )
     }
 

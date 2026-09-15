@@ -5,9 +5,16 @@ import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
 import { getSubscriptionStatus, createSubscription, cancelSubscription } from '@/lib/subscription'
 import { ChurchService } from '@/lib/services/church-service'
+import { UserService } from '@/lib/services/user-service'
 import { SubscriptionService, SubscriptionPlanService } from '@/lib/services/subscription-service'
-import { db, FieldValue } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+
+async function authorizeChurchAccess(userId: string, churchId: string): Promise<boolean> {
+  const user = await UserService.findById(userId)
+  if (!user) return false
+  if ((user as any).role === 'SUPER_ADMIN') return true
+  if (user.churchId === churchId && ['ADMIN', 'PASTOR', 'BRANCH_ADMIN'].includes((user as any).role)) return true
+  return false
+}
 
 export async function GET(
   request: Request,
@@ -20,6 +27,12 @@ export async function GET(
     }
 
     const { churchId } = params
+
+    const userId = (session.user as any).id
+    if (!(await authorizeChurchAccess(userId, churchId))) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const status = await getSubscriptionStatus(churchId)
 
     return NextResponse.json(status)
@@ -43,6 +56,12 @@ export async function POST(
     }
 
     const { churchId } = params
+
+    const userId = (session.user as any).id
+    if (!(await authorizeChurchAccess(userId, churchId))) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const body = await request.json()
     const { planId, startTrial } = body
 
@@ -96,6 +115,12 @@ export async function PUT(
     }
 
     const { churchId } = params
+
+    const userId = (session.user as any).id
+    if (!(await authorizeChurchAccess(userId, churchId))) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const body = await request.json()
     const { planId, cancelAtPeriodEnd } = body
 
@@ -110,10 +135,7 @@ export async function PUT(
         )
       }
 
-      await db.collection(COLLECTIONS.subscriptions).doc(subscription.id).update({
-        planId,
-        updatedAt: FieldValue.serverTimestamp(),
-      })
+      await SubscriptionService.update(subscription.id, { planId })
 
       const updated = await SubscriptionService.findByChurch(churchId)
       const plan = await SubscriptionPlanService.findById(planId)

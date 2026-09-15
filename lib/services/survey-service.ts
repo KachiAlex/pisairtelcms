@@ -2,6 +2,8 @@ import { prisma } from '@/lib/prisma'
 import type {
   Survey,
   SurveyQuestion,
+  SurveySection,
+  TargetAudience,
   SurveyResponse,
   SurveyTemplate,
   CreateSurveyRequest,

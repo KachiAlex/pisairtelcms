@@ -69,13 +69,13 @@ export default function UserProfileEdit({ userId }: UserProfileEditProps) {
   const getAvailableRoles = (userRole: string): string[] => {
     switch (userRole) {
       case 'SUPER_ADMIN':
-        return ['VISITOR', 'MEMBER', 'VOLUNTEER', 'LEADER', 'STAFF', 'BRANCH_ADMIN', 'PASTOR', 'ADMIN', 'SUPER_ADMIN']
+        return ['VISITOR', 'MEMBER', 'VOLUNTEER', 'LEADER', 'BRANCH_ADMIN', 'PASTOR', 'ADMIN', 'SUPER_ADMIN']
       case 'ADMIN':
-        return ['VISITOR', 'MEMBER', 'VOLUNTEER', 'LEADER', 'STAFF', 'BRANCH_ADMIN', 'PASTOR', 'ADMIN']
+        return ['VISITOR', 'MEMBER', 'VOLUNTEER', 'LEADER', 'BRANCH_ADMIN', 'PASTOR', 'ADMIN']
       case 'PASTOR':
-        return ['VISITOR', 'MEMBER', 'VOLUNTEER', 'LEADER', 'STAFF', 'BRANCH_ADMIN']
+        return ['VISITOR', 'MEMBER', 'VOLUNTEER', 'LEADER', 'BRANCH_ADMIN']
       case 'BRANCH_ADMIN':
-        return ['VISITOR', 'MEMBER', 'VOLUNTEER', 'LEADER', 'STAFF']
+        return ['VISITOR', 'MEMBER', 'VOLUNTEER', 'LEADER']
       default:
         return []
     }

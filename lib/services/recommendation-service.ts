@@ -1,3 +1,4 @@
+import { prisma } from '@/lib/prisma'
 import { DataAggregationService } from '@/lib/services/data-aggregation-service-postgres'
 import { AnalyticsCacheService } from '@/lib/services/analytics-cache-service-postgres'
 
@@ -469,8 +470,8 @@ export class RecommendationService {
       // Recommend popular topics
       topTopics.forEach((topic, index) => {
         recommendations.push({
-          topic,
-          reason: `Consistently high engagement with ${topic}`,
+          topic: topic.topic,
+          reason: `Consistently high engagement with ${topic.topic}`,
           priority: 10 - index,
         })
       })
@@ -550,8 +551,25 @@ export class RecommendationService {
       ...recommendation,
     }
 
-    // Store in Firestore
-    await db.collection('recommendations').doc(id).set(record)
+    await prisma.recommendation.create({
+      data: {
+        id: record.id,
+        userId: record.userId,
+        churchId: record.churchId,
+        type: record.type,
+        title: record.title,
+        description: record.description,
+        reason: record.reason,
+        confidence: record.confidence,
+        priority: record.priority,
+        suggestedAction: record.suggestedAction,
+        expectedImpact: record.expectedImpact,
+        dataPoints: record.dataPoints ?? [],
+        status: record.status,
+        actionNotes: record.actionNotes ?? null,
+        metrics: record.metrics ?? undefined,
+      },
+    })
 
     return record
   }
@@ -564,11 +582,13 @@ export class RecommendationService {
     status: RecommendationStatus,
     actionNotes?: string
   ): Promise<void> {
-    await db.collection('recommendations').doc(id).update({
-      status,
-      actionNotes,
-      actionTakenAt: status === 'implemented' ? FieldValue.serverTimestamp() : null,
-      updatedAt: FieldValue.serverTimestamp(),
+    await prisma.recommendation.update({
+      where: { id },
+      data: {
+        status,
+        actionNotes: actionNotes ?? null,
+        actionTakenAt: status === 'implemented' ? new Date() : null,
+      },
     })
   }
 
@@ -580,23 +600,25 @@ export class RecommendationService {
     churchId: string,
     status?: RecommendationStatus
   ): Promise<Recommendation[]> {
-    let query = db.collection('recommendations')
-      .where('userId', '==', userId)
-      .where('churchId', '==', churchId)
+    const records = await prisma.recommendation.findMany({
+      where: {
+        userId,
+        churchId,
+        ...(status ? { status } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+    })
 
-    if (status) {
-      query = query.where('status', '==', status)
-    }
-
-    const snapshot = await query.orderBy('createdAt', 'desc').get()
-
-    return snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate?.() || new Date(),
-      updatedAt: doc.data().updatedAt?.toDate?.() || new Date(),
-      actionTakenAt: doc.data().actionTakenAt?.toDate?.(),
-    })) as Recommendation[]
+    return records.map((record) => ({
+      ...record,
+      type: record.type as RecommendationType,
+      confidence: record.confidence as ConfidenceLevel,
+      status: record.status as RecommendationStatus,
+      dataPoints: record.dataPoints ?? [],
+      actionNotes: record.actionNotes ?? undefined,
+      actionTakenAt: record.actionTakenAt ?? undefined,
+      metrics: (record.metrics as Record<string, any>) ?? undefined,
+    }))
   }
 
   // Helper methods
@@ -634,6 +656,11 @@ export class RecommendationService {
     allEvents: Array<{ attendees: number }>,
     factors: Array<{ name: string; impact: number; description: string }>
   ): AttendancePrediction {
+    const avgAttendance = this.calculateAverage(allEvents.map((e) => e.attendees))
+    const variance = this.calculateVariance(allEvents.map((e) => e.attendees))
+    const consistency =
+      avgAttendance > 0 ? Math.max(0, 100 - (variance / avgAttendance) * 10) : 0
+
     return {
       eventId: `event_${Date.now()}`,
       predictedAttendance: Math.round(attendance),
@@ -643,7 +670,7 @@ export class RecommendationService {
       recommendations: this.generateAttendanceRecommendations(
         attendance,
         trend,
-        this.calculateAverage(allEvents.map((e) => e.attendees)) > 0
+        consistency
       ),
     }
   }

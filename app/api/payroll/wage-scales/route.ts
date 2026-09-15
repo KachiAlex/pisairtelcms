@@ -2,8 +2,7 @@
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { WageScaleService, PayrollPositionService } from '@/lib/services/payroll-service'
-import { db, FieldValue } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { guardApi } from '@/lib/api-guard'
 
 export async function GET(request: Request) {
@@ -25,14 +24,10 @@ export async function GET(request: Request) {
         const position = await PayrollPositionService.findById(scale.positionId)
         let department = null
         if (position?.departmentId) {
-          const deptDoc = await db.collection(COLLECTIONS.departments).doc(position.departmentId).get()
-          if (deptDoc.exists) {
-            const deptData = deptDoc.data()!
-            department = {
-              id: deptDoc.id,
-              name: deptData.name,
-            }
-          }
+          department = await prisma.department.findUnique({
+            where: { id: position.departmentId },
+            select: { id: true, name: true },
+          })
         }
 
         return {
@@ -103,10 +98,7 @@ export async function POST(request: Request) {
       const effectiveFromDate = new Date(effectiveFrom)
       for (const scale of existingScales) {
         if (!scale.effectiveTo || scale.effectiveTo >= effectiveFromDate) {
-          await db.collection(COLLECTIONS.wageScales).doc(scale.id).update({
-            effectiveTo: effectiveFromDate,
-            updatedAt: FieldValue.serverTimestamp(),
-          })
+          await WageScaleService.expire(scale.id, effectiveFromDate)
         }
       }
     }

@@ -5,13 +5,12 @@ import { PaymentService } from '@/lib/services/payment-service'
 import { GivingService } from '@/lib/services/giving-service'
 import { SubscriptionService, SubscriptionPlanService } from '@/lib/services/subscription-service'
 import { EmailService } from '@/lib/services/email-service'
-import { db, FieldValue } from '@/lib/firestore'
+import { prisma } from '@/lib/prisma'
 import { ReceiptService } from '@/lib/services/receipt-service'
 import { getCorrelationIdFromRequest, logger } from '@/lib/logger'
 import { GivingConfigService } from '@/lib/services/giving-config-service'
 import { getCurrentChurch } from '@/lib/church-context'
 import { SubscriptionPaymentService } from '@/lib/services/subscription-payment-service'
-import { COLLECTIONS } from '@/lib/firestore-collections'
 import { LandingPaymentService } from '@/lib/services/landing-payment-service'
 
 export async function POST(request: Request) {
@@ -70,20 +69,25 @@ export async function POST(request: Request) {
     // Prefer Flutterwave transaction id; fallback to tx_ref.
     const transactionKey = data?.id ? `flutterwave_${data.id}` : data?.tx_ref ? `flutterwave_txref_${data.tx_ref}` : null
     if (transactionKey) {
-      const markerRef = db.collection('webhook_events').doc(transactionKey)
-      const markerSnap = await markerRef.get()
-      if (markerSnap.exists) {
-        logger.info('webhook.flutterwave.duplicate', { correlationId, transactionKey })
-        return NextResponse.json({ received: true, duplicate: true })
+      try {
+        await prisma.webhookEvent.create({
+          data: {
+            transactionKey,
+            provider: 'flutterwave',
+            event,
+            txRef: data?.tx_ref || null,
+            transactionId: data?.id ? String(data.id) : null,
+            status: data?.status || null,
+          },
+        })
+      } catch (error: any) {
+        // Unique constraint violation = already processed
+        if (error?.code === 'P2002') {
+          logger.info('webhook.flutterwave.duplicate', { correlationId, transactionKey })
+          return NextResponse.json({ received: true, duplicate: true })
+        }
+        throw error
       }
-      await markerRef.set({
-        provider: 'flutterwave',
-        event,
-        tx_ref: data?.tx_ref || null,
-        transactionId: data?.id || null,
-        status: data?.status || null,
-        createdAt: FieldValue.serverTimestamp(),
-      })
     }
 
     // Handle successful payment
@@ -171,10 +175,9 @@ export async function POST(request: Request) {
               return NextResponse.json({ received: true })
             }
 
-            await db.collection(COLLECTIONS.subscriptions).doc(subscription.id).update({
+            await SubscriptionService.update(subscription.id, {
               planId: plan.id,
               status: 'ACTIVE',
-              updatedAt: FieldValue.serverTimestamp(),
             })
 
             await SubscriptionPaymentService.markApplied(payment.id)

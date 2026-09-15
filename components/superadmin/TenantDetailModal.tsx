@@ -35,9 +35,9 @@ interface TenantDetailModalProps {
 }
 
 const formatDate = (value?: string) => {
-  if (!value) return "â€”"
+  if (!value) return "--"
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "â€”"
+  if (Number.isNaN(date.getTime())) return "--"
   return date.toLocaleDateString()
 }
 
@@ -377,7 +377,7 @@ export default function TenantDetailModal({ open, loading, error, data, onClose,
                               className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
                             />
                           ) : (
-                            <p className="mt-1 text-sm text-gray-900">{(church as any)[field] || 'â€”'}</p>
+                            <p className="mt-1 text-sm text-gray-900">{(church as any)[field] || '--'}</p>
                           )}
                         </div>
                       ))}
@@ -405,10 +405,10 @@ export default function TenantDetailModal({ open, loading, error, data, onClose,
                         </div>
                         <div className="text-right text-sm text-gray-600">
                           <p>
-                            ${planMeta.priceMonthlyRange.min}â€“{planMeta.priceMonthlyRange.max}/mo
+                            ${planMeta.priceMonthlyRange.min}-{planMeta.priceMonthlyRange.max}/mo
                           </p>
                           <p>
-                            ${planMeta.priceAnnualRange.min}â€“{planMeta.priceAnnualRange.max}/yr
+                            ${planMeta.priceAnnualRange.min}-{planMeta.priceAnnualRange.max}/yr
                           </p>
                         </div>
                       </div>
@@ -416,7 +416,7 @@ export default function TenantDetailModal({ open, loading, error, data, onClose,
                       <div className="mt-4 grid gap-4 text-sm text-gray-700 md:grid-cols-2">
                         <div>
                           <p className="text-xs font-semibold uppercase text-gray-500">Ideal For</p>
-                          <p>{planMeta.idealUseCases?.join(', ') || 'â€”'}</p>
+                          <p>{planMeta.idealUseCases?.join(', ') || '--'}</p>
                         </div>
                         <div>
                           <p className="text-xs font-semibold uppercase text-gray-500">User Limit</p>
@@ -448,8 +448,8 @@ export default function TenantDetailModal({ open, loading, error, data, onClose,
                             Recommended upgrade: {recommendedPlanMeta.name}
                           </p>
                           <p className="mt-1 text-xs text-amber-800">
-                            Based on current size (~{data?.userCount ?? 'â€”'} members) we recommend moving to the{' '}
-                            {recommendedPlanMeta.name} plan for optimal coverage. Use â€œChange Planâ€ in License Manager below to
+                            Based on current size (~{data?.userCount ?? '--'} members) we recommend moving to the{' '}
+                            {recommendedPlanMeta.name} plan for optimal coverage. Use "Change Plan" in License Manager below to
                             upgrade instantly.
                           </p>
                         </div>
@@ -508,7 +508,7 @@ export default function TenantDetailModal({ open, loading, error, data, onClose,
                         <dd>
                           {plan?.price
                             ? `$${plan.price}/${plan.billingCycle === "monthly" ? "mo" : "yr"}`
-                            : "â€”"}
+                            : "--"}
                         </dd>
                       </div>
                       <div>

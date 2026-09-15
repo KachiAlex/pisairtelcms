@@ -125,15 +125,15 @@ export default function SurveyCreator({
       return []
     }
 
-    const hydrated = baseQuestions.map((question) => ({
+    const hydrated = baseQuestions.map((question: SurveyQuestion) => ({
       ...question,
       sectionId: question.sectionId || fallbackSectionId
     }))
 
     const ordered = seededSections.flatMap((section) =>
       hydrated
-        .filter((question) => question.sectionId === section.id)
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        .filter((question: SurveyQuestion) => question.sectionId === section.id)
+        .sort((a: SurveyQuestion, b: SurveyQuestion) => (a.order ?? 0) - (b.order ?? 0))
     )
 
     return ordered.map((question, index) => ({ ...question, order: index }))
@@ -258,7 +258,8 @@ export default function SurveyCreator({
       options: type === 'MULTIPLE_CHOICE' ? [''] : undefined,
       minRating: type === 'RATING' ? 1 : undefined,
       maxRating: type === 'RATING' ? 5 : undefined,
-      ratingLabels: type === 'RATING' ? { min: 'Poor', max: 'Excellent' } : undefined
+      ratingLabels: type === 'RATING' ? { min: 'Poor', max: 'Excellent' } : undefined,
+      order: questions.length
     }
     updateQuestionsState((prev) => [...prev, newQuestion])
   }

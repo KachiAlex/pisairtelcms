@@ -2,8 +2,7 @@
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { SermonService } from '@/lib/services/sermon-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { guardApi } from '@/lib/api-guard'
 import { checkUsageLimit } from '@/lib/subscription'
 
@@ -37,45 +36,57 @@ export async function GET(request: Request) {
       lastDocId: cursor || undefined,
     })
 
-    // Get user's watch progress
-    const userViewsSnapshot = await db.collection(COLLECTIONS.sermonViews)
-      .where('userId', '==', userId)
-      .get()
+    const sermonIds = sermons.map((s) => s.id)
+
+    // Get user's watch progress from Postgres
+    const [userViews, viewCounts, downloadCounts] = await Promise.all([
+      sermonIds.length
+        ? prisma.sermonView.findMany({ where: { userId, sermonId: { in: sermonIds } } })
+        : Promise.resolve([]),
+      sermonIds.length
+        ? prisma.sermonView.groupBy({
+            by: ['sermonId'],
+            where: { sermonId: { in: sermonIds } },
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
+      sermonIds.length
+        ? prisma.sermonDownload.groupBy({
+            by: ['sermonId'],
+            where: { sermonId: { in: sermonIds } },
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
+    ])
 
     const viewMap = new Map(
-      userViewsSnapshot.docs.map((doc: any) => {
-        const data = doc.data()
-        return [data.sermonId, {
-          watchedDuration: data.watchedDuration || 0,
-          completed: data.completed || false,
-        }]
-      })
+      userViews.map((v) => [
+        v.sermonId,
+        { watchedDuration: v.watchedDuration, completed: v.completed },
+      ])
     )
+    const viewCountMap = new Map(viewCounts.map((c) => [c.sermonId, c._count._all]))
+    const downloadCountMap = new Map(downloadCounts.map((c) => [c.sermonId, c._count._all]))
 
-    // Get view and download counts (cached on sermon docs)
-    const sermonsWithDetails = await Promise.all(
-      sermons.map(async (sermon) => {
-        const view = viewMap.get(sermon.id)
+    // Get view and download counts from Postgres
+    const sermonsWithDetails = sermons.map((sermon) => {
+      const view = viewMap.get(sermon.id)
 
-        return {
-          ...sermon,
-          userProgress: view
-            ? {
-                watchedDuration: (view as any).watchedDuration,
-                completed: (view as any).completed,
-                progress:
-                  sermon.duration
-                    ? ((view as any).watchedDuration / sermon.duration) * 100
-                    : 0,
-              }
-            : null,
-          _count: {
-            views: (sermon as any).viewsCount || 0,
-            downloads: (sermon as any).downloadsCount || 0,
-          },
-        }
-      })
-    )
+      return {
+        ...sermon,
+        userProgress: view
+          ? {
+              watchedDuration: view.watchedDuration,
+              completed: view.completed,
+              progress: sermon.duration ? (view.watchedDuration / sermon.duration) * 100 : 0,
+            }
+          : null,
+        _count: {
+          views: viewCountMap.get(sermon.id) || 0,
+          downloads: downloadCountMap.get(sermon.id) || 0,
+        },
+      }
+    })
     const nextCursor = sermons.length === limit ? sermons[sermons.length - 1].id : null
 
     return NextResponse.json({

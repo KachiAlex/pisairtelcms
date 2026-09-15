@@ -1,8 +1,5 @@
 import { UserService } from '../services/user-service'
-import { ChurchService } from '../services/church-service'
-import { db } from '../firestore'
-import { COLLECTIONS } from '../firestore-collections'
-import { FieldValue } from 'firebase-admin/firestore'
+import { prisma } from '../prisma'
 import { getSpiritualCoachingResponse } from './openai'
 
 /**
@@ -18,9 +15,9 @@ export async function assignMentorToNewConvert(userId: string) {
 
     // Get all users in church
     const churchUsers = await UserService.findByChurch(user.churchId)
-    
+
     // Find potential mentors (LEADER or PASTOR)
-    const potentialMentors = churchUsers.filter(u => 
+    const potentialMentors = churchUsers.filter(u =>
       ['LEADER', 'PASTOR'].includes(u.role)
     )
 
@@ -28,38 +25,27 @@ export async function assignMentorToNewConvert(userId: string) {
       return null
     }
 
-    // Get mentee counts for each mentor
-    const mentorsWithCounts = await Promise.all(
-      potentialMentors.map(async (mentor) => {
-        const assignments = await db.collection(COLLECTIONS.mentorAssignments)
-          .where('mentorId', '==', mentor.id)
-          .where('status', '==', 'Active')
-          .count()
-          .get()
-        
-        return {
-          ...mentor,
-          menteeCount: assignments.data().count || 0,
-        }
-      })
-    )
+    // Get active mentee counts for all potential mentors in one query
+    const mentorIds = potentialMentors.map((m) => m.id)
+    const counts = await prisma.mentorAssignment.groupBy({
+      by: ['mentorId'],
+      where: { mentorId: { in: mentorIds }, status: 'Active' },
+      _count: { menteeId: true },
+    })
+    const countByMentor = new Map(counts.map((c) => [c.mentorId, c._count.menteeId]))
 
-    // Sort by mentee count and get the one with fewest
-    mentorsWithCounts.sort((a, b) => a.menteeCount - b.menteeCount)
-    const mentor = mentorsWithCounts[0]
+    const mentor = potentialMentors
+      .map((m) => ({ ...m, menteeCount: countByMentor.get(m.id) ?? 0 }))
+      .sort((a, b) => a.menteeCount - b.menteeCount)[0]
 
     // Check if assignment already exists
-    const existingSnapshot = await db.collection(COLLECTIONS.mentorAssignments)
-      .where('mentorId', '==', mentor.id)
-      .where('menteeId', '==', userId)
-      .limit(1)
-      .get()
+    const existing = await prisma.mentorAssignment.findUnique({
+      where: { mentorId_menteeId: { mentorId: mentor.id, menteeId: userId } },
+    })
 
-    if (!existingSnapshot.empty) {
-      const existingDoc = existingSnapshot.docs[0]
+    if (existing) {
       return {
-        id: existingDoc.id,
-        ...existingDoc.data(),
+        ...existing,
         mentor: {
           id: mentor.id,
           firstName: mentor.firstName,
@@ -70,20 +56,16 @@ export async function assignMentorToNewConvert(userId: string) {
     }
 
     // Create mentor assignment
-    const assignmentRef = db.collection(COLLECTIONS.mentorAssignments).doc()
-    await assignmentRef.set({
-      mentorId: mentor.id,
-      menteeId: userId,
-      status: 'Active',
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
+    const assignment = await prisma.mentorAssignment.create({
+      data: {
+        mentorId: mentor.id,
+        menteeId: userId,
+        status: 'Active',
+      },
     })
 
     return {
-      id: assignmentRef.id,
-      mentorId: mentor.id,
-      menteeId: userId,
-      status: 'Active',
+      ...assignment,
       mentor: {
         id: mentor.id,
         firstName: mentor.firstName,
@@ -153,25 +135,16 @@ export async function scheduleNewConvertFollowUps(userId: string) {
     for (let day = 1; day <= 7; day++) {
       const followUp = await generateDailyFollowUp(userId, day)
       if (followUp) {
-        const followUpRef = db.collection(COLLECTIONS.followUps).doc()
-        await followUpRef.set({
-          userId,
-          type: 'New Convert',
-          message: followUp.message,
-          scripture: followUp.scripture,
-          sentAt: new Date(Date.now() + day * 24 * 60 * 60 * 1000), // Schedule for future
-          createdAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
+        const sentAt = new Date(Date.now() + day * 24 * 60 * 60 * 1000) // Schedule for future
+        const record = await prisma.followUp.create({
+          data: {
+            userId,
+            type: 'New Convert',
+            message: followUp.message,
+            scripture: followUp.scripture,
+            sentAt,
+          },
         })
-        
-        const record = {
-          id: followUpRef.id,
-          userId,
-          type: 'New Convert',
-          message: followUp.message,
-          scripture: followUp.scripture,
-          sentAt: new Date(Date.now() + day * 24 * 60 * 60 * 1000),
-        }
         followUps.push(record)
       }
     }
@@ -185,4 +158,3 @@ export async function scheduleNewConvertFollowUps(userId: string) {
     return []
   }
 }
-

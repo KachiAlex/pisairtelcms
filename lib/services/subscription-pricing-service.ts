@@ -1,5 +1,4 @@
-import { db, toDate, FieldValue } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 export type DiscountType = 'percentage' | 'flat'
 export type PromoScope = 'plan' | 'church' | 'global'
@@ -43,126 +42,136 @@ export interface PlanOverride extends Omit<PlanOverrideInput, 'expiresAt' | 'cre
   updatedAt: Date
 }
 
-function promoDoc(code: string) {
-  return db.collection(COLLECTIONS.subscriptionPromos).doc(code.toUpperCase())
-}
+const toPromo = (record: any): SubscriptionPromo => ({
+  ...record,
+  validFrom: record.validFrom ?? undefined,
+  validTo: record.validTo ?? undefined,
+  notes: record.notes ?? undefined,
+  createdBy: record.createdBy ?? undefined,
+  updatedBy: record.updatedBy ?? undefined,
+})
 
-function overrideDoc(planId: string, churchId: string) {
-  const id = `${planId}__${churchId}`
-  return db.collection(COLLECTIONS.subscriptionPlanOverrides).doc(id)
-}
+const toOverride = (record: any): PlanOverride => ({
+  ...record,
+  customPrice: record.customPrice ?? undefined,
+  customSetupFee: record.customSetupFee ?? undefined,
+  promoCode: record.promoCode ?? undefined,
+  notes: record.notes ?? undefined,
+  updatedBy: record.updatedBy ?? undefined,
+})
 
 export class SubscriptionPricingService {
   // Promo helpers
   static async listPromos(): Promise<SubscriptionPromo[]> {
-    const snapshot = await db.collection(COLLECTIONS.subscriptionPromos).orderBy('createdAt', 'desc').get()
-    return snapshot.docs.map((doc) => {
-      const data = doc.data()
-      return {
-        code: doc.id,
-        ...data,
-        validFrom: data.validFrom ? toDate(data.validFrom) : undefined,
-        validTo: data.validTo ? toDate(data.validTo) : undefined,
-        createdAt: toDate(data.createdAt),
-        updatedAt: toDate(data.updatedAt),
-      } as SubscriptionPromo
+    const records = await prisma.subscriptionPromo.findMany({
+      orderBy: { createdAt: 'desc' },
     })
+    return records.map(toPromo)
   }
 
   static async getPromo(code: string): Promise<SubscriptionPromo | null> {
     if (!code) return null
-    const docRef = promoDoc(code)
-    const doc = await docRef.get()
-    if (!doc.exists) return null
-    const data = doc.data()!
-    return {
-      code: doc.id,
-      ...data,
-      validFrom: data.validFrom ? toDate(data.validFrom) : undefined,
-      validTo: data.validTo ? toDate(data.validTo) : undefined,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as SubscriptionPromo
+    const record = await prisma.subscriptionPromo.findUnique({
+      where: { code: code.toUpperCase() },
+    })
+    return record ? toPromo(record) : null
   }
 
   static async createPromo(data: Omit<SubscriptionPromo, 'createdAt' | 'updatedAt'>) {
     const code = data.code.toUpperCase()
-    const now = FieldValue.serverTimestamp()
-    await promoDoc(code).set({
-      ...data,
-      code,
-      createdAt: now,
-      updatedAt: now,
-      validFrom: data.validFrom || FieldValue.serverTimestamp(),
-      status: data.status || 'active',
-      redeemedCount: data.redeemedCount || 0,
+    await prisma.subscriptionPromo.upsert({
+      where: { code },
+      create: {
+        code,
+        type: data.type,
+        value: data.value,
+        appliesTo: data.appliesTo,
+        planIds: data.planIds ?? [],
+        churchIds: data.churchIds ?? [],
+        maxRedemptions: data.maxRedemptions,
+        redeemedCount: data.redeemedCount || 0,
+        validFrom: data.validFrom || new Date(),
+        validTo: data.validTo,
+        notes: data.notes,
+        status: data.status || 'active',
+        createdBy: data.createdBy,
+        updatedBy: data.updatedBy,
+      },
+      update: {
+        type: data.type,
+        value: data.value,
+        appliesTo: data.appliesTo,
+        planIds: data.planIds ?? [],
+        churchIds: data.churchIds ?? [],
+        maxRedemptions: data.maxRedemptions,
+        validTo: data.validTo,
+        notes: data.notes,
+        status: data.status || 'active',
+        updatedBy: data.updatedBy,
+      },
     })
     return this.getPromo(code)
   }
 
   static async updatePromo(code: string, updates: Partial<SubscriptionPromo>) {
-    const docRef = promoDoc(code)
-    const doc = await docRef.get()
-    if (!doc.exists) {
-      return null
-    }
-    const dataToUpdate: Record<string, any> = { ...updates, updatedAt: FieldValue.serverTimestamp() }
-    if (updates.validFrom instanceof Date) dataToUpdate.validFrom = updates.validFrom
-    if (updates.validTo instanceof Date) dataToUpdate.validTo = updates.validTo
-    await docRef.update(dataToUpdate)
+    const existing = await prisma.subscriptionPromo.findUnique({
+      where: { code: code.toUpperCase() },
+    })
+    if (!existing) return null
+
+    const { code: _code, createdAt: _c, updatedAt: _u, ...rest } = updates as any
+    await prisma.subscriptionPromo.update({
+      where: { code: code.toUpperCase() },
+      data: rest,
+    })
     return this.getPromo(code)
   }
 
   // Overrides
   static async setPlanOverride(input: PlanOverrideInput) {
-    const docRef = overrideDoc(input.planId, input.churchId)
-    const payload = {
-      ...input,
-      id: docRef.id,
-      expiresAt: input.expiresAt ?? null,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-    await docRef.set(payload, { merge: true })
+    await prisma.subscriptionPlanOverride.upsert({
+      where: { planId_churchId: { planId: input.planId, churchId: input.churchId } },
+      create: {
+        planId: input.planId,
+        churchId: input.churchId,
+        customPrice: input.customPrice,
+        customSetupFee: input.customSetupFee,
+        promoCode: input.promoCode,
+        expiresAt: input.expiresAt ?? null,
+        notes: input.notes,
+        createdBy: input.createdBy,
+      },
+      update: {
+        customPrice: input.customPrice,
+        customSetupFee: input.customSetupFee,
+        promoCode: input.promoCode,
+        expiresAt: input.expiresAt ?? null,
+        notes: input.notes,
+        updatedBy: input.createdBy,
+      },
+    })
     return this.getPlanOverride(input.planId, input.churchId)
   }
 
   static async getPlanOverride(planId: string, churchId: string): Promise<PlanOverride | null> {
-    const docRef = overrideDoc(planId, churchId)
-    const doc = await docRef.get()
-    if (!doc.exists) return null
-    const data = doc.data()!
-    return {
-      id: doc.id,
-      ...data,
-      expiresAt: data.expiresAt ? toDate(data.expiresAt) : null,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as PlanOverride
+    const record = await prisma.subscriptionPlanOverride.findUnique({
+      where: { planId_churchId: { planId, churchId } },
+    })
+    return record ? toOverride(record) : null
   }
 
   static async deletePlanOverride(planId: string, churchId: string) {
-    await overrideDoc(planId, churchId).delete()
+    await prisma.subscriptionPlanOverride.deleteMany({
+      where: { planId, churchId },
+    })
   }
 
   static async listOverridesForChurch(churchId: string): Promise<PlanOverride[]> {
-    const snapshot = await db
-      .collection(COLLECTIONS.subscriptionPlanOverrides)
-      .where('churchId', '==', churchId)
-      .get()
-
-    const overrides = snapshot.docs.map((doc) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        expiresAt: data.expiresAt ? toDate(data.expiresAt) : null,
-        createdAt: toDate(data.createdAt),
-        updatedAt: toDate(data.updatedAt),
-      } as PlanOverride
+    const records = await prisma.subscriptionPlanOverride.findMany({
+      where: { churchId },
+      orderBy: { updatedAt: 'desc' },
     })
-
-    return overrides.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+    return records.map(toOverride)
   }
 
   static isPromoActive(promo: SubscriptionPromo): boolean {

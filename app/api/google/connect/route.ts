@@ -2,10 +2,8 @@
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { guardApi } from '@/lib/api-guard'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { getGoogleOAuthClient } from '@/lib/services/church-google-service'
-import { FieldValue } from 'firebase-admin/firestore'
 import crypto from 'crypto'
 
 export async function POST() {
@@ -34,11 +32,13 @@ export async function POST() {
 
   const state = crypto.randomBytes(24).toString('hex')
 
-  await db.collection(COLLECTIONS.churchGoogleOauthStates).doc(state).set({
-    churchId: church.id,
-    userId,
-    createdAt: FieldValue.serverTimestamp(),
-    expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+  await prisma.churchGoogleOauthState.create({
+    data: {
+      state,
+      churchId: church.id,
+      userId,
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+    },
   })
 
   const url = oauth.generateAuthUrl({

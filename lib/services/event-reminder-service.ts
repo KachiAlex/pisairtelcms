@@ -1,6 +1,4 @@
-import { FieldValue } from 'firebase-admin/firestore'
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { Event, EventService } from '@/lib/services/event-service'
 import { EventRegistrationService } from '@/lib/services/event-registration-service'
 import { MessageService } from '@/lib/services/message-service'
@@ -28,41 +26,50 @@ export interface ReminderConfig {
   createdBy?: string
 }
 
+function reminderFromPrisma(record: any): EventReminder {
+  return {
+    id: record.id,
+    eventId: record.eventId,
+    churchId: record.churchId,
+    notifyAt: record.notifyAt,
+    message: record.message,
+    status: record.status,
+    frequencyMinutes: record.frequencyMinutes,
+    durationMinutes: record.durationMinutes,
+    createdBy: record.createdBy ?? undefined,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  }
+}
+
 export class EventReminderService {
   static async create(
     data: Omit<EventReminder, 'id' | 'createdAt' | 'updatedAt'>
   ): Promise<EventReminder> {
-    const payload = {
-      ...data,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    const docRef = db.collection(COLLECTIONS.eventReminders).doc()
-    await docRef.set(payload)
-
-    const snapshot = await docRef.get()
-    const saved = snapshot.data()!
-
-    return {
-      id: docRef.id,
-      ...saved,
-      notifyAt: toDate(saved.notifyAt),
-      createdAt: toDate(saved.createdAt),
-      updatedAt: toDate(saved.updatedAt),
-    } as EventReminder
+    const record = await prisma.eventReminder.create({
+      data: {
+        eventId: data.eventId,
+        churchId: data.churchId,
+        notifyAt: data.notifyAt instanceof Date ? data.notifyAt : new Date(data.notifyAt),
+        message: data.message,
+        status: data.status || 'scheduled',
+        frequencyMinutes: data.frequencyMinutes,
+        durationMinutes: data.durationMinutes,
+        createdBy: data.createdBy ?? null,
+      },
+    })
+    return reminderFromPrisma(record)
   }
 
   static async scheduleForEvent(
     event: Event,
     config: ReminderConfig & { churchId: string }
   ): Promise<EventReminder[]> {
-    const reminders: EventReminder[] = []
     const frequencyMinutes = Math.max(5, Math.floor(config.frequencyMinutes))
     const durationMinutes = Math.max(5, Math.floor(config.durationHours * 60))
 
     if (durationMinutes <= 0) {
-      return reminders
+      return []
     }
 
     const eventStart = event.startDate instanceof Date ? event.startDate : new Date(event.startDate)
@@ -80,83 +87,74 @@ export class EventReminderService {
         minute: '2-digit',
       })} on ${eventStart.toLocaleDateString()}`
 
-    const payloads: Omit<EventReminder, 'id' | 'createdAt' | 'updatedAt'>[] = []
-
+    const notifyTimes: Date[] = []
     while (cursor <= eventStart) {
-      payloads.push({
-        eventId: event.id,
-        churchId: config.churchId,
-        notifyAt: new Date(cursor),
-        message,
-        status: 'scheduled',
-        frequencyMinutes,
-        durationMinutes,
-        createdBy: config.createdBy,
-      } as EventReminder)
-
+      notifyTimes.push(new Date(cursor))
       if (cursor.getTime() === eventStart.getTime()) {
         break
       }
-
       cursor = new Date(cursor.getTime() + frequencyMinutes * 60 * 1000)
-
       if (cursor > eventStart) {
         cursor = new Date(eventStart)
       }
     }
 
-    for (const payload of payloads) {
-      const reminder = await this.create(payload)
-      reminders.push(reminder)
-    }
+    if (!notifyTimes.length) return []
 
-    return reminders
+    await prisma.eventReminder.createMany({
+      data: notifyTimes.map((notifyAt) => ({
+        eventId: event.id,
+        churchId: config.churchId,
+        notifyAt,
+        message,
+        status: 'scheduled',
+        frequencyMinutes,
+        durationMinutes,
+        createdBy: config.createdBy ?? null,
+      })),
+    })
+
+    const records = await prisma.eventReminder.findMany({
+      where: {
+        eventId: event.id,
+        status: 'scheduled',
+        notifyAt: { in: notifyTimes },
+      },
+      orderBy: { notifyAt: 'asc' },
+    })
+    return records.map(reminderFromPrisma)
   }
 
+  /**
+   * Reminders whose notifyAt is due (scheduled + notifyAt <= now)
+   */
   static async listDue(limit: number = 25): Promise<EventReminder[]> {
-    const snapshot = await db
-      .collection(COLLECTIONS.eventReminders)
-      .where('status', '==', 'scheduled')
-      .limit(limit * 2)
-      .get()
-
-    return snapshot.docs.map((doc) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        notifyAt: toDate(data.notifyAt),
-        createdAt: toDate(data.createdAt),
-        updatedAt: toDate(data.updatedAt),
-      } as EventReminder
+    const records = await prisma.eventReminder.findMany({
+      where: {
+        status: 'scheduled',
+        notifyAt: { lte: new Date() },
+      },
+      orderBy: { notifyAt: 'asc' },
+      take: limit,
     })
+    return records.map(reminderFromPrisma)
   }
 
   static async markSent(id: string): Promise<void> {
-    await db.collection(COLLECTIONS.eventReminders).doc(id).update({
-      status: 'sent',
-      updatedAt: FieldValue.serverTimestamp(),
+    await prisma.eventReminder.update({
+      where: { id },
+      data: { status: 'sent' },
     })
   }
 
   static async clearScheduledForEvent(eventId: string): Promise<void> {
-    const snapshot = await db
-      .collection(COLLECTIONS.eventReminders)
-      .where('eventId', '==', eventId)
-      .where('status', '==', 'scheduled')
-      .get()
-
-    if (snapshot.empty) return
-
-    const batch = db.batch()
-    snapshot.docs.forEach((doc) => batch.delete(doc.ref))
-    await batch.commit()
+    await prisma.eventReminder.deleteMany({
+      where: { eventId, status: 'scheduled' },
+    })
   }
 
   static async sendDueReminders(limit: number = 25) {
-    const now = new Date()
-    const reminders = await this.listDue(limit)
-    const dueReminders = reminders.filter((reminder) => reminder.notifyAt <= now)
+    const dueReminders = await this.listDue(limit)
 
     if (!dueReminders.length) {
       return { processed: 0, recipientsNotified: 0 }

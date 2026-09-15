@@ -6,8 +6,7 @@ import { authOptions } from '@/lib/auth-options'
 import { PostService } from '@/lib/services/post-service'
 import { UserService } from '@/lib/services/user-service'
 import { getCurrentChurch } from '@/lib/church-context'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 export async function GET(request: Request) {
   try {
@@ -33,53 +32,52 @@ export async function GET(request: Request) {
 
     // Get posts
     let posts = await PostService.findByChurch(church.id, limit)
-    
+
     // Filter by type if provided
     if (type) {
       posts = posts.filter(post => post.type === type)
     }
 
-    // Get user data and like status for each post
-    const postsWithDetails = await Promise.all(
-      posts.map(async (post) => {
-        const user = await UserService.findById(post.userId)
-        
-        // Check if user liked this post
-        const likeDoc = await db.collection(COLLECTIONS.posts)
-          .doc(post.id)
-          .collection('likes')
-          .doc(userId)
-          .get()
-        
-        // Get comment count
-        const commentsSnapshot = await db.collection(COLLECTIONS.comments)
-          .where('postId', '==', post.id)
-          .count()
-          .get()
+    // Batch-fetch related data (users, like status) in single queries
+    const postIds = posts.map((p) => p.id)
+    const userIds = [...new Set(posts.map((p) => p.userId))]
 
-        return {
-          ...post,
-          user: user ? {
-            id: user.id,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            profileImage: user.profileImage,
-          } : null,
-          isLiked: likeDoc.exists,
-          _count: {
-            likes: post.likes,
-            comments: commentsSnapshot.data().count || 0,
-          },
-        }
-      })
-    )
+    const [users, myLikes, total] = await Promise.all([
+      userIds.length > 0
+        ? prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, firstName: true, lastName: true, profileImage: true },
+          })
+        : Promise.resolve([]),
+      postIds.length > 0
+        ? prisma.postLike.findMany({
+            where: { userId, postId: { in: postIds } },
+            select: { postId: true },
+          })
+        : Promise.resolve([]),
+      prisma.post.count({ where: { churchId: church.id } }),
+    ])
 
-    // Get total count (approximate for pagination)
-    const totalSnapshot = await db.collection(COLLECTIONS.posts)
-      .where('churchId', '==', church.id)
-      .count()
-      .get()
-    const total = totalSnapshot.data().count || posts.length
+    const userMap = new Map(users.map((u) => [u.id, u]))
+    const likedSet = new Set(myLikes.map((l) => l.postId))
+
+    const postsWithDetails = posts.map((post) => {
+      const user = userMap.get(post.userId)
+      return {
+        ...post,
+        user: user ? {
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          profileImage: user.profileImage,
+        } : null,
+        isLiked: likedSet.has(post.id),
+        _count: {
+          likes: post.likes,
+          comments: post.commentsCount,
+        },
+      }
+    })
 
     return NextResponse.json({
       posts: postsWithDetails,
@@ -158,5 +156,3 @@ export async function POST(request: Request) {
     )
   }
 }
-
-

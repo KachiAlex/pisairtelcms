@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { guardApi } from '@/lib/api-guard'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
 
 type RouteParams = {
   params: {
@@ -32,18 +30,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Signature title is required' }, { status: 400 })
     }
 
-    // Update church document with signature settings
-    const churchRef = db.collection(COLLECTIONS.churches).doc(params.churchId)
-    const updateData: any = {
-      certificateSignatureTitle: title.trim(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    if (name?.trim()) {
-      updateData.certificateSignatureName = name.trim()
-    }
-
-    await churchRef.update(updateData)
+    // Update church record with signature settings
+    await prisma.church.update({
+      where: { id: params.churchId },
+      data: {
+        certificateSignatureTitle: title.trim(),
+        ...(name?.trim() ? { certificateSignatureName: name.trim() } : {}),
+      },
+    })
 
     return NextResponse.json({
       success: true,

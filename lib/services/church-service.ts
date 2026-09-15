@@ -70,7 +70,7 @@ export class ChurchService {
     const record = await prisma.church.create({
       data: {
         name: data.name,
-        slug: data.slug,
+        slug: data.slug || generateSlug(data.name),
         logo: data.logo,
         primaryColor: data.primaryColor,
         secondaryColor: data.secondaryColor,

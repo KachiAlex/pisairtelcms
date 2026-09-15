@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    let churchId = resolvedUser.churchId || sessionUser.churchId
+    let churchId: string | null = resolvedUser.churchId || sessionUser.churchId || null
     if (!churchId) {
       churchId = await getCurrentChurchId(resolvedUser.id)
     }
@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    let churchId = resolvedUser.churchId || sessionUser.churchId
+    let churchId: string | null = resolvedUser.churchId || sessionUser.churchId || null
     if (!churchId) {
       churchId = await getCurrentChurchId(resolvedUser.id)
     }

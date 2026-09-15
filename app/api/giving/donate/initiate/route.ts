@@ -7,6 +7,7 @@ import { getCurrentChurch } from '@/lib/church-context'
 import { FlutterwaveService } from '@/lib/services/flutterwave-service'
 import { UserService } from '@/lib/services/user-service'
 import { ProjectService } from '@/lib/services/giving-service'
+import { prisma } from '@/lib/prisma'
 
 export async function POST(request: Request) {
   try {
@@ -101,21 +102,31 @@ export async function POST(request: Request) {
 
     // Store pending donation details for webhook processing
     // This will be matched when webhook arrives with same txRef
-    const { db } = await import('@/lib/firestore')
-    const { COLLECTIONS } = await import('@/lib/firestore-collections')
-    const { FieldValue } = await import('@/lib/firestore')
-
-    await db.collection(COLLECTIONS.pendingDonations).doc(txRef).set({
-      userId,
-      churchId: church.id,
-      amount,
-      currency,
-      type,
-      projectId: projectId || null,
-      notes: notes || null,
-      status: 'pending',
-      createdAt: FieldValue.serverTimestamp(),
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes
+    await prisma.pendingDonation.upsert({
+      where: { txRef },
+      create: {
+        txRef,
+        userId,
+        churchId: church.id,
+        amount,
+        currency,
+        type,
+        projectId: projectId || null,
+        notes: notes || null,
+        status: 'pending',
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes
+      },
+      update: {
+        userId,
+        churchId: church.id,
+        amount,
+        currency,
+        type,
+        projectId: projectId || null,
+        notes: notes || null,
+        status: 'pending',
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+      },
     })
 
     return NextResponse.json({

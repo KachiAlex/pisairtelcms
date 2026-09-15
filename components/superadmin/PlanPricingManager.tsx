@@ -244,7 +244,7 @@ export default function PlanPricingManager({ initialPlans, initialPromos }: Plan
   }
 
   const formatDateBadge = (value?: string) => {
-    if (!value) return 'â€”'
+    if (!value) return '--'
     const date = new Date(value)
     return date.toLocaleDateString()
   }
@@ -284,7 +284,7 @@ export default function PlanPricingManager({ initialPlans, initialPromos }: Plan
                     <h3 className="font-semibold text-gray-900">{plan.name}</h3>
                     {plan.targetMembers && (
                       <span className="text-xs text-gray-500">
-                        {plan.targetMembers.min.toLocaleString()}â€“
+                        {plan.targetMembers.min.toLocaleString()}"
                         {plan.targetMembers.max ? plan.targetMembers.max.toLocaleString() : '+'} members
                       </span>
                     )}
@@ -308,7 +308,7 @@ export default function PlanPricingManager({ initialPlans, initialPromos }: Plan
                 {plan.description && <p className="text-sm text-gray-600 mt-1">{plan.description}</p>}
                 {isLifetimePlan && (
                   <p className="text-xs text-emerald-700 font-medium mt-1">
-                    Lifetime license â€¢ charge a single upfront payment
+                    Lifetime license  -  charge a single upfront payment
                   </p>
                 )}
               </div>
@@ -376,7 +376,7 @@ export default function PlanPricingManager({ initialPlans, initialPromos }: Plan
                   <ul className="space-y-1 text-sm text-gray-600">
                     {plan.features.slice(0, 5).map((feature, idx) => (
                       <li key={idx} className="flex items-center gap-2">
-                        <span className="text-green-500">â€¢</span>
+                        <span className="text-green-500"> - </span>
                         {feature}
                       </li>
                     ))}

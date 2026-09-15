@@ -25,7 +25,10 @@ export async function PATCH(
     const { ruleId } = params
     const body = await request.json()
 
-    await AlertService.updateAlertRule(ruleId, body)
+    const updated = await AlertService.updateAlertRule(ruleId, body, (session.user as any).id)
+    if (!updated) {
+      return NextResponse.json({ error: 'Alert rule not found' }, { status: 404 })
+    }
 
     return NextResponse.json({
       success: true,
@@ -57,7 +60,10 @@ export async function DELETE(
     const params = await context.params
     const { ruleId } = params
 
-    await AlertService.deleteAlertRule(ruleId)
+    const deleted = await AlertService.deleteAlertRule(ruleId, (session.user as any).id)
+    if (!deleted) {
+      return NextResponse.json({ error: 'Alert rule not found' }, { status: 404 })
+    }
 
     return NextResponse.json({
       success: true,

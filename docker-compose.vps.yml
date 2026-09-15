@@ -43,6 +43,8 @@ services:
       FIREBASE_SERVICE_ACCOUNT_BASE64: ${FIREBASE_SERVICE_ACCOUNT_BASE64:-}
       FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
       # AI
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -56,6 +58,8 @@ services:
       FLUTTERWAVE_PUBLIC_KEY: ${FLUTTERWAVE_PUBLIC_KEY:-}
       FLUTTERWAVE_SECRET_KEY: ${FLUTTERWAVE_SECRET_KEY:-}
       FLUTTERWAVE_SECRET_HASH: ${FLUTTERWAVE_SECRET_HASH:-}
+    volumes:
+      - ecclesia_uploads:/app/uploads
     depends_on:
       ecclesia-db:
         condition: service_healthy
@@ -64,6 +68,7 @@ services:
 
 volumes:
   ecclesia_pgdata:
+  ecclesia_uploads:
 
 networks:
   pi-cms-net:

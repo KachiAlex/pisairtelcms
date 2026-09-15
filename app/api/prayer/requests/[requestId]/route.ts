@@ -3,8 +3,8 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { getCurrentChurch } from '@/lib/church-context'
+import { prisma } from '@/lib/prisma'
 
 export async function DELETE(
   request: Request,
@@ -26,20 +26,27 @@ export async function DELETE(
 
     const { requestId } = await params
 
-    // Delete the prayer request
-    await db.collection(COLLECTIONS.prayerRequests).doc(requestId).delete()
-
-    // Also delete associated interactions
-    const interactions = await db
-      .collection(COLLECTIONS.prayerInteractions)
-      .where('requestId', '==', requestId)
-      .get()
-
-    const batch = db.batch()
-    interactions.docs.forEach((doc) => {
-      batch.delete(doc.ref)
+    const existing = await prisma.prayerRequest.findUnique({
+      where: { id: requestId },
+      select: { id: true, churchId: true },
     })
-    await batch.commit()
+    if (!existing) {
+      return NextResponse.json({ error: 'Prayer request not found' }, { status: 404 })
+    }
+
+    // Tenant isolation: non-super-admins may only delete within their church
+    if (userRole !== 'SUPER_ADMIN') {
+      const church = await getCurrentChurch((session.user as any).id)
+      if (!church || existing.churchId !== church.id) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
+    }
+
+    // Delete the request and its interactions (cascade-safe)
+    await prisma.$transaction([
+      prisma.prayerInteraction.deleteMany({ where: { prayerRequestId: requestId } }),
+      prisma.prayerRequest.delete({ where: { id: requestId } }),
+    ])
 
     return NextResponse.json({ success: true })
   } catch (error: any) {

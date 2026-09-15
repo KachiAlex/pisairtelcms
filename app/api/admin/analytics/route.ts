@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { hasPermission } from '@/lib/permissions'
 import { UserService } from '@/lib/services/user-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { CheckInService } from '@/lib/services/checkin-service'
 import { guardApi } from '@/lib/api-guard'
 
@@ -44,62 +43,34 @@ export async function GET() {
       user.lastLoginAt && new Date(user.lastLoginAt) >= thisMonth
     ).length
 
-    // Sermon views this month
-    const sermonsSnapshot = await db.collection(COLLECTIONS.sermons)
-      .where('churchId', '==', church.id)
-      .get()
-    const sermonIds = sermonsSnapshot.docs.map((doc: any) => doc.id)
-    
-    let sermonViews = 0
-    for (const sermonId of sermonIds) {
-      const viewsSnapshot = await db.collection(COLLECTIONS.sermonViews)
-        .where('sermonId', '==', sermonId)
-        .where('createdAt', '>=', thisMonth)
-        .count()
-        .get()
-      sermonViews += viewsSnapshot.data().count || 0
-    }
-
-    // Prayer requests this month
-    const prayerRequestsSnapshot = await db.collection(COLLECTIONS.prayerRequests)
-      .where('churchId', '==', church.id)
-      .where('createdAt', '>=', thisMonth)
-      .count()
-      .get()
-    const prayerRequests = prayerRequestsSnapshot.data().count || 0
-
-    // Total giving this month
-    let totalGiving = 0
-    for (const user of allUsers) {
-      const givingSnapshot = await db.collection(COLLECTIONS.donations)
-        .where('userId', '==', user.id)
-        .where('createdAt', '>=', thisMonth)
-        .get()
-      const userGiving = givingSnapshot.docs.reduce((sum: number, doc: any) => {
-        const data = doc.data()
-        return sum + (data.amount || 0)
-      }, 0)
-      totalGiving += userGiving
-    }
-
-    // Events this month
-    const eventsSnapshot = await db.collection(COLLECTIONS.events)
-      .where('churchId', '==', church.id)
-      .where('startDate', '>=', thisMonth)
-      .count()
-      .get()
-    const eventsCount = eventsSnapshot.data().count || 0
-
-    // Check-ins this month
-    const checkIns = await CheckInService.countByChurch(church.id, thisMonth)
-
-    // Recent posts
-    const postsSnapshot = await db.collection(COLLECTIONS.posts)
-      .where('churchId', '==', church.id)
-      .where('createdAt', '>=', thisMonth)
-      .count()
-      .get()
-    const recentPosts = postsSnapshot.data().count || 0
+    // Batched Prisma counts — no per-sermon/per-user loops
+    const [sermonViews, prayerRequests, givingAgg, eventsCount, checkIns, recentPosts] =
+      await Promise.all([
+        // Sermon views this month (via sermon → church relation)
+        prisma.sermonView.count({
+          where: { sermon: { churchId: church.id }, createdAt: { gte: thisMonth } },
+        }),
+        // Prayer requests this month
+        prisma.prayerRequest.count({
+          where: { churchId: church.id, createdAt: { gte: thisMonth } },
+        }),
+        // Total giving this month (via user → church relation)
+        prisma.giving.aggregate({
+          _sum: { amount: true },
+          where: { user: { churchId: church.id }, createdAt: { gte: thisMonth } },
+        }),
+        // Events this month
+        prisma.event.count({
+          where: { churchId: church.id, startDate: { gte: thisMonth } },
+        }),
+        // Check-ins this month
+        CheckInService.countByChurch(church.id, thisMonth),
+        // Recent posts
+        prisma.post.count({
+          where: { churchId: church.id, createdAt: { gte: thisMonth } },
+        }),
+      ])
+    const totalGiving = givingAgg._sum.amount || 0
 
     // Users by role
     const usersByRoleMap = new Map<string, number>()

@@ -5,9 +5,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { PrayerRequestService } from '@/lib/services/prayer-service'
 import { getCurrentChurch } from '@/lib/church-context'
-import { UserService } from '@/lib/services/user-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 export async function GET(request: Request) {
   try {
@@ -35,34 +33,44 @@ export async function GET(request: Request) {
       limit: 50,
     })
 
-    // Get user data and check interactions
-    const requestsWithDetails = await Promise.all(
-      requests.map(async (request) => {
-        const user = await UserService.findById(request.userId)
-        
-        // Check if current user has prayed
-        const interactionDoc = await db.collection(COLLECTIONS.prayerInteractions)
-          .where('requestId', '==', request.id)
-          .where('userId', '==', userId)
-          .where('type', '==', 'Prayed')
-          .limit(1)
-          .get()
+    // Batch-fetch users and current user's "Prayed" interactions
+    const requestIds = requests.map((r) => r.id)
+    const userIds = [...new Set(requests.filter((r) => !r.isAnonymous).map((r) => r.userId))]
 
-        return {
-          ...request,
-          user: user && !request.isAnonymous ? {
-            id: user.id,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            profileImage: user.profileImage,
-          } : null,
-          hasPrayed: !interactionDoc.empty,
-          _count: {
-            interactions: request.prayerCount,
-          },
-        }
-      })
-    )
+    const [users, myInteractions] = await Promise.all([
+      userIds.length > 0
+        ? prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, firstName: true, lastName: true, profileImage: true },
+          })
+        : Promise.resolve([]),
+      requestIds.length > 0
+        ? prisma.prayerInteraction.findMany({
+            where: { userId, prayerRequestId: { in: requestIds }, type: 'Prayed' },
+            select: { prayerRequestId: true },
+          })
+        : Promise.resolve([]),
+    ])
+
+    const userMap = new Map(users.map((u) => [u.id, u]))
+    const prayedSet = new Set(myInteractions.map((i) => i.prayerRequestId))
+
+    const requestsWithDetails = requests.map((request) => {
+      const user = userMap.get(request.userId)
+      return {
+        ...request,
+        user: user && !request.isAnonymous ? {
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          profileImage: user.profileImage,
+        } : null,
+        hasPrayed: prayedSet.has(request.id),
+        _count: {
+          interactions: request.prayerCount,
+        },
+      }
+    })
 
     return NextResponse.json(requestsWithDetails)
   } catch (error) {
@@ -111,7 +119,10 @@ export async function POST(request: Request) {
     })
 
     // Get user data
-    const user = await UserService.findById(userId)
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, firstName: true, lastName: true, profileImage: true },
+    })
 
     return NextResponse.json({
       ...prayerRequest,

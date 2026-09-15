@@ -7,32 +7,45 @@ export interface Post {
   content: string
   type: string
   imageUrl?: string
+  images?: string[]
   likes: number
+  commentsCount: number
   createdAt: Date
   updatedAt: Date
 }
 
+const withCounts = {
+  _count: { select: { likes: true, comments: true } },
+} as const
+
 const fromPrisma = (record: any): Post => {
-  const { firestoreData, ...rest } = record
+  const { firestoreData, _count, ...rest } = record
   const legacy = (firestoreData as Record<string, unknown>) || {}
-  return { ...legacy, ...rest } as Post
+  const images = Array.isArray(rest.images) ? rest.images : []
+  return {
+    ...legacy,
+    ...rest,
+    imageUrl: rest.imageUrl ?? images[0],
+    likes: _count?.likes ?? (typeof legacy.likes === 'number' ? legacy.likes : 0),
+    commentsCount: _count?.comments ?? 0,
+  } as Post
 }
 
 export class PostService {
   static async findById(id: string): Promise<Post | null> {
-    const record = await prisma.post.findUnique({ where: { id } })
+    const record = await prisma.post.findUnique({ where: { id }, include: withCounts })
     if (!record) return null
     return fromPrisma(record)
   }
 
-  static async create(data: Omit<Post, 'id' | 'createdAt' | 'updatedAt' | 'likes'>): Promise<Post> {
+  static async create(data: Omit<Post, 'id' | 'createdAt' | 'updatedAt' | 'likes' | 'commentsCount'>): Promise<Post> {
+    const { imageUrl, images, ...rest } = data as any
     const record = await prisma.post.create({
       data: {
-        ...data,
-        likes: 0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as any,
+        ...rest,
+        images: images ?? (imageUrl ? [imageUrl] : []),
+      },
+      include: withCounts,
     })
     return fromPrisma(record)
   }
@@ -44,6 +57,7 @@ export class PostService {
       take: limit,
       skip: lastDocId ? 1 : undefined,
       cursor: lastDocId ? { id: lastDocId } : undefined,
+      include: withCounts,
     })
     return records.map(fromPrisma)
   }
@@ -53,26 +67,34 @@ export class PostService {
       where: { userId },
       orderBy: { createdAt: 'desc' },
       take: limit,
+      include: withCounts,
     })
     return records.map(fromPrisma)
   }
 
-  static async incrementLikes(id: string): Promise<void> {
-    await prisma.post.update({
-      where: { id },
-      data: { likes: { increment: 1 }, updatedAt: new Date() },
+  /**
+   * Toggle a like for a user on a post. Returns the new liked state.
+   */
+  static async toggleLike(postId: string, userId: string): Promise<{ liked: boolean; likes: number }> {
+    const existing = await prisma.postLike.findUnique({
+      where: { userId_postId: { userId, postId } },
     })
+
+    if (existing) {
+      await prisma.postLike.delete({ where: { id: existing.id } })
+    } else {
+      await prisma.postLike.create({ data: { userId, postId } })
+    }
+
+    const likes = await prisma.postLike.count({ where: { postId } })
+    return { liked: !existing, likes }
   }
 
-  static async decrementLikes(id: string): Promise<void> {
-    await prisma.post.update({
-      where: { id },
-      data: { likes: { decrement: 1 }, updatedAt: new Date() },
-    })
+  static async countByChurch(churchId: string): Promise<number> {
+    return prisma.post.count({ where: { churchId } })
   }
 
   static async delete(id: string): Promise<void> {
     await prisma.post.delete({ where: { id } })
   }
 }
-

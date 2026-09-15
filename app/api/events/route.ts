@@ -9,7 +9,7 @@ import { getCurrentChurch } from '@/lib/church-context'
 import { checkUsageLimit } from '@/lib/subscription'
 import { EventReminderService } from '@/lib/services/event-reminder-service'
 import { EventService, type Event } from '@/lib/services/event-service'
-import { EventRegistrationService } from '@/lib/services/event-registration-service'
+import { EventRegistrationService, EventAttendanceService } from '@/lib/services/event-registration-service'
 
 const normalizeReminderConfig = (config?: {
   durationHours?: number
@@ -84,36 +84,41 @@ export async function GET(request: Request) {
       events = events.filter((event: any) => event.branchId === branchId)
     }
 
-    // Get registration and attendance counts, and user registration status
-    const eventsWithDetails = await Promise.all(
-      events.map(async (event) => {
-        const registrationCount = await EventRegistrationService.countByEvent(event.id)
-        const userRegistration = await EventRegistrationService.findByUserAndEvent(userId, event.id)
+    // Batched lookups — no per-event N+1
+    const eventIds = events.map((e) => e.id)
+    const [registrationCounts, attendanceCounts, userRegistrations] = await Promise.all([
+      EventRegistrationService.countByEvents(eventIds),
+      EventAttendanceService.countByEvents(eventIds),
+      EventRegistrationService.findUserRegistrations(userId, eventIds),
+    ])
 
-        // Format dates for calendar display
-        const startDate = new Date(event.startDate)
-        const endDate = event.endDate ? new Date(event.endDate) : null
+    const eventsWithDetails = events.map((event) => {
+      const registrationCount = registrationCounts.get(event.id) || 0
+      const userRegistration = userRegistrations.get(event.id)
 
-        return {
-          ...event,
-          date: startDate.toISOString().split('T')[0], // Add date field for calendar
-          startTime: startDate.toTimeString().slice(0, 5), // Format: HH:MM
-          endTime: endDate ? endDate.toTimeString().slice(0, 5) : startDate.toTimeString().slice(0, 5),
-          userRegistration: userRegistration ? {
-            eventId: userRegistration.eventId,
-            status: userRegistration.status,
-            ticketNumber: userRegistration.ticketNumber,
-          } : null,
-          availableSpots: event.maxAttendees
-            ? event.maxAttendees - registrationCount
-            : null,
-          _count: {
-            registrations: registrationCount,
-            attendances: 0, // Would need EventAttendanceService.countByEvent
-          },
-        }
-      })
-    )
+      // Format dates for calendar display
+      const startDate = new Date(event.startDate)
+      const endDate = event.endDate ? new Date(event.endDate) : null
+
+      return {
+        ...event,
+        date: startDate.toISOString().split('T')[0], // Add date field for calendar
+        startTime: startDate.toTimeString().slice(0, 5), // Format: HH:MM
+        endTime: endDate ? endDate.toTimeString().slice(0, 5) : startDate.toTimeString().slice(0, 5),
+        userRegistration: userRegistration ? {
+          eventId: userRegistration.eventId,
+          status: userRegistration.status,
+          ticketNumber: userRegistration.ticketNumber,
+        } : null,
+        availableSpots: event.maxAttendees
+          ? event.maxAttendees - registrationCount
+          : null,
+        _count: {
+          registrations: registrationCount,
+          attendances: attendanceCounts.get(event.id) || 0,
+        },
+      }
+    })
 
     return NextResponse.json(eventsWithDetails)
   } catch (error) {

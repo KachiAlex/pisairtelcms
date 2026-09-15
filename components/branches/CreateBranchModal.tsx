@@ -304,7 +304,7 @@ export default function CreateBranchModal({
                     <Combobox.Options className="absolute z-10 mt-2 max-h-60 w-full overflow-auto rounded-xl bg-white py-2 shadow-lg ring-1 ring-black/5 focus:outline-none">
                       {filteredExistingBranches.length === 0 && existingSearch.trim().length > 0 ? (
                         <div className="px-4 py-2 text-sm text-slate-500">
-                          No branches match â€œ{existingSearch.trim()}â€.
+                          No branches match "{existingSearch.trim()}".
                         </div>
                       ) : filteredExistingBranches.length === 0 ? (
                         <div className="px-4 py-2 text-sm text-slate-500">No branches available.</div>

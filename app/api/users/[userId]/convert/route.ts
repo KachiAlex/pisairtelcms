@@ -6,7 +6,21 @@ import { authOptions } from '@/lib/auth-options'
 import { UserService } from '@/lib/services/user-service'
 import { getCurrentChurch } from '@/lib/church-context'
 import { requirePermissionMiddleware } from '@/lib/middleware/rbac'
+import { canManageUser } from '@/lib/permissions'
 import { scheduleNewConvertFollowUps } from '@/lib/ai/follow-up'
+import type { UserRole } from '@/types'
+
+// Roles that can be stored in the database (Prisma UserRole enum)
+const STORABLE_ROLES: UserRole[] = [
+  'VISITOR',
+  'MEMBER',
+  'VOLUNTEER',
+  'LEADER',
+  'BRANCH_ADMIN',
+  'PASTOR',
+  'ADMIN',
+  'SUPER_ADMIN',
+]
 
 export async function POST(
   request: Request,
@@ -51,21 +65,44 @@ export async function POST(
       )
     }
 
-    // Validate role transition
-    const validTransitions: Record<string, string[]> = {
-      VISITOR: ['MEMBER', 'LEADER'],
-      MEMBER: ['LEADER', 'VISITOR'],
-      LEADER: ['MEMBER', 'PASTOR'],
-      PASTOR: ['LEADER', 'ADMIN'],
-      ADMIN: ['PASTOR'],
-      SUPER_ADMIN: [], // Cannot be changed
+    const actorRole = (user as any).role as UserRole
+
+    // Super admin accounts cannot be converted
+    if (targetUser.role === 'SUPER_ADMIN') {
+      return NextResponse.json(
+        { error: 'Cannot change super admin accounts' },
+        { status: 403 }
+      )
     }
 
-    const allowedRoles = validTransitions[targetUser.role] || []
-    if (!allowedRoles.includes(newRole)) {
+    // Validate the target role is a real, storable role
+    if (!STORABLE_ROLES.includes(newRole as UserRole)) {
+      return NextResponse.json(
+        { error: `Invalid role: ${newRole}` },
+        { status: 400 }
+      )
+    }
+
+    // Only super admins can create other super admins
+    if (newRole === 'SUPER_ADMIN' && actorRole !== 'SUPER_ADMIN') {
+      return NextResponse.json(
+        { error: 'Only super admins can assign the super admin role' },
+        { status: 403 }
+      )
+    }
+
+    // Actor must be able to manage both the user's current role and the target role
+    const allowedRoles = STORABLE_ROLES.filter((r) => canManageUser(actorRole, r))
+    if (!canManageUser(actorRole, targetUser.role as UserRole)) {
+      return NextResponse.json(
+        { error: `You don't have permission to manage ${targetUser.role} users` },
+        { status: 403 }
+      )
+    }
+    if (!allowedRoles.includes(newRole as UserRole)) {
       return NextResponse.json(
         {
-          error: `Cannot convert ${targetUser.role} to ${newRole}. Valid transitions: ${allowedRoles.join(', ')}`,
+          error: `Cannot convert ${targetUser.role} to ${newRole}. Roles you can assign: ${allowedRoles.join(', ')}`,
         },
         { status: 400 }
       )

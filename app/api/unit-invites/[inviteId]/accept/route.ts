@@ -26,13 +26,18 @@ export async function POST(_: Request, { params }: { params: { inviteId: string 
     return NextResponse.json({ error: 'Unit not found' }, { status: 404 })
   }
 
-  const unitType = await UnitTypeService.findById(invite.unitTypeId)
+  const unitTypeId = invite.unitTypeId || unit.typeId
+  if (!unitTypeId) {
+    return NextResponse.json({ error: 'Invalid unit type' }, { status: 400 })
+  }
+
+  const unitType = await UnitTypeService.findById(unitTypeId)
   if (!unitType || unitType.churchId !== church!.id) {
     return NextResponse.json({ error: 'Invalid unit type' }, { status: 400 })
   }
 
   if (!unitType.allowMultiplePerUser) {
-    const existing = await UnitMembershipService.findByUserAndUnitType(userId, invite.unitTypeId)
+    const existing = await UnitMembershipService.findByUserAndUnitType(userId, unitTypeId)
     if (existing.length > 0) {
       return NextResponse.json({ error: 'You are already a member of this unit type' }, { status: 409 })
     }
@@ -43,7 +48,7 @@ export async function POST(_: Request, { params }: { params: { inviteId: string 
     await UnitMembershipService.create({
       churchId: church!.id,
       unitId: invite.unitId,
-      unitTypeId: invite.unitTypeId,
+      unitTypeId,
       userId,
       role: 'MEMBER',
     })

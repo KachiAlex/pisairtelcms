@@ -1,70 +1,64 @@
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue, Query } from 'firebase-admin/firestore'
-
-export type AccountingIncomeSource =
-  | 'Cash Offering'
-  | 'Bank Transfer'
-  | 'Grant'
-  | 'Fundraising'
-  | 'Sponsorship'
-  | 'Venue Rental'
-  | 'Other'
+import { prisma } from '@/lib/prisma'
 
 export interface AccountingIncome {
   id: string
   churchId: string
-  branchId?: string
+  branchId?: string | null
   amount: number
-  currency?: string
-  source: AccountingIncomeSource | string
-  description?: string
+  currency?: string | null
+  type?: string
+  category?: string | null
+  source?: string | null
+  date: Date
+  /** Alias of `date` kept for legacy callers. */
   incomeDate: Date
-  attachmentUrl?: string
-  attachmentPath?: string
+  description?: string | null
+  transactionId?: string | null
+  attachmentUrl?: string | null
+  attachmentPath?: string | null
+  voidsIncomeId?: string | null
   createdBy: string
   createdAt: Date
   updatedAt: Date
-  voidsIncomeId?: string
 }
+
+const mapIncome = (record: any): AccountingIncome => ({
+  ...(record as AccountingIncome),
+  incomeDate: record.date,
+})
 
 export class AccountingIncomeService {
   static async findById(id: string): Promise<AccountingIncome | null> {
-    const doc = await db.collection(COLLECTIONS.accountingIncome).doc(id).get()
-    if (!doc.exists) return null
-
-    const data = doc.data()!
-    return {
-      id: doc.id,
-      ...data,
-      incomeDate: toDate(data.incomeDate),
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as AccountingIncome
+    const record = await prisma.accountingIncome.findUnique({ where: { id } })
+    if (!record) return null
+    return mapIncome(record)
   }
 
   static async create(
-    data: Omit<AccountingIncome, 'id' | 'createdAt' | 'updatedAt'>
-  ): Promise<AccountingIncome> {
-    const incomeData: any = {
-      ...data,
-      incomeDate: data.incomeDate instanceof Date ? data.incomeDate : new Date(data.incomeDate),
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
+    data: Omit<AccountingIncome, 'id' | 'createdAt' | 'updatedAt' | 'date' | 'incomeDate'> & {
+      date?: Date | string
+      incomeDate?: Date | string
     }
-
-    const docRef = db.collection(COLLECTIONS.accountingIncome).doc()
-    await docRef.set(incomeData)
-
-    const created = await docRef.get()
-    const createdData = created.data()!
-    return {
-      id: created.id,
-      ...createdData,
-      incomeDate: toDate(createdData.incomeDate),
-      createdAt: toDate(createdData.createdAt),
-      updatedAt: toDate(createdData.updatedAt),
-    } as AccountingIncome
+  ): Promise<AccountingIncome> {
+    const record = await prisma.accountingIncome.create({
+      data: {
+        churchId: data.churchId,
+        branchId: data.branchId ?? null,
+        amount: data.amount,
+        currency: data.currency ?? null,
+        type: data.type || 'Other',
+        category: data.category ?? null,
+        source: data.source ?? null,
+        date: new Date((data.date ?? data.incomeDate) as any),
+        description: data.description ?? null,
+        transactionId: data.transactionId ?? null,
+        attachmentUrl: data.attachmentUrl ?? null,
+        attachmentPath: data.attachmentPath ?? null,
+        voidsIncomeId: data.voidsIncomeId ?? null,
+        createdBy: data.createdBy,
+      },
+    })
+    return mapIncome(record)
   }
 
   static async findByChurch(
@@ -76,36 +70,18 @@ export class AccountingIncomeService {
       limit?: number
     }
   ): Promise<AccountingIncome[]> {
-    let query: Query = db.collection(COLLECTIONS.accountingIncome).where('churchId', '==', churchId)
-
-    if (options?.branchId) {
-      query = query.where('branchId', '==', options.branchId)
-    }
-
-    query = query.limit(options?.limit || 200)
-
-    const snapshot = await query.get()
-    let incomes = snapshot.docs.map((doc: any) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        incomeDate: toDate(data.incomeDate),
-        createdAt: toDate(data.createdAt),
-        updatedAt: toDate(data.updatedAt),
-      } as AccountingIncome
+    const records = await prisma.accountingIncome.findMany({
+      where: {
+        churchId,
+        branchId: options?.branchId ?? undefined,
+        date: {
+          gte: options?.startDate,
+          lte: options?.endDate,
+        },
+      },
+      take: options?.limit || 200,
+      orderBy: { date: 'desc' },
     })
-
-    if (options?.startDate) {
-      incomes = incomes.filter((i) => i.incomeDate >= options.startDate!)
-    }
-
-    if (options?.endDate) {
-      incomes = incomes.filter((i) => i.incomeDate <= options.endDate!)
-    }
-
-    incomes = incomes.sort((a, b) => b.incomeDate.getTime() - a.incomeDate.getTime())
-
-    return incomes
+    return records.map(mapIncome)
   }
 }

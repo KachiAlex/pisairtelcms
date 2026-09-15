@@ -9,8 +9,7 @@ import {
   DigitalExamAttemptService,
 } from '@/lib/services/digital-school-service'
 import { UserService } from '@/lib/services/user-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { UserRole } from '@/types'
 
 const MANAGER_ROLES: UserRole[] = ['ADMIN', 'PASTOR', 'BRANCH_ADMIN', 'SUPER_ADMIN']
@@ -44,13 +43,10 @@ export async function GET(_: Request, { params }: RouteParams) {
           .map((user) => user.branchId as string),
       ),
     )
-    const branchEntries = await Promise.all(
-      branchIds.map(async (branchId) => {
-        const branchDoc = await db.collection(COLLECTIONS.branches).doc(branchId).get()
-        return { branchId, name: branchDoc.exists ? (branchDoc.data()?.name as string | undefined) : undefined }
-      }),
-    )
-    const branchMap = new Map(branchEntries.map((entry) => [entry.branchId, entry.name ?? 'Branch']))
+    const branchRows = branchIds.length
+      ? await prisma.branch.findMany({ where: { id: { in: branchIds } }, select: { id: true, name: true } })
+      : []
+    const branchMap = new Map(branchRows.map((entry) => [entry.id, entry.name ?? 'Branch']))
 
     const exams = await DigitalCourseExamService.listByCourse(course.id)
     const attemptsByUser = new Map<

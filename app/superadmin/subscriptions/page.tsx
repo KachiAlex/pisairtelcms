@@ -1,8 +1,7 @@
 import { redirect } from 'next/navigation'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import PlanPricingManager from '@/components/superadmin/PlanPricingManager'
 import { LICENSING_PLANS } from '@/lib/licensing/plans'
 
@@ -19,29 +18,24 @@ export default async function SubscriptionsPage() {
   }
 
   // Get all subscriptions
-  const subscriptionsSnapshot = await db.collection(COLLECTIONS.subscriptions).get()
-  const subscriptions = subscriptionsSnapshot.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-  }))
+  const subscriptions = await prisma.subscription.findMany()
 
   // Get all plans
   const configById = new Map(LICENSING_PLANS.map((plan) => [plan.id, plan]))
 
-  const plansSnapshot = await db.collection(COLLECTIONS.subscriptionPlans).get()
-  const plans = plansSnapshot.docs.map((doc) => {
-    const data = doc.data()
+  const planRows = await prisma.subscriptionPlan.findMany()
+  const plans = planRows.map((data) => {
     const rawPrice = typeof data.price === 'number' ? data.price : Number(data.price) || 0
-    const config = configById.get(doc.id)
+    const config = configById.get(data.id)
     return {
-      id: doc.id,
-      name: data.name || config?.name || doc.id,
+      id: data.id,
+      name: data.name || config?.name || data.id,
       description: data.description || config?.description || '',
       price: rawPrice || config?.priceMonthlyRange.min || 0,
       currency: (data.currency || 'USD') as string,
       billingCycle: (data.billingCycle || config?.billingCycle || 'monthly') as string,
       features: Array.isArray(data.features) && data.features.length > 0 ? data.features : config?.features || [],
-      type: data.type || data.tier || config?.tier || '',
+      type: (data as any).type || (data as any).tier || config?.tier || '',
       targetMembers: config?.targetMembers,
     }
   })
@@ -66,11 +60,7 @@ export default async function SubscriptionsPage() {
 
   const mergedPlans = Array.from(planMap.values()).sort((a, b) => (a.price ?? 0) - (b.price ?? 0))
 
-  const promosSnapshot = await db.collection(COLLECTIONS.subscriptionPromos).orderBy('createdAt', 'desc').get()
-  const promos = promosSnapshot.docs.map((doc) => ({
-    code: doc.id,
-    ...doc.data(),
-  }))
+  const promos = await prisma.subscriptionPromo.findMany({ orderBy: { createdAt: 'desc' } })
 
   return (
     <div className="space-y-6">

@@ -1,15 +1,15 @@
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
 
-export type UnitTypeJoinPolicy = 'INVITE_ONLY' | 'OPEN' | 'REQUEST'
-export type UnitTypeCreationPolicy = 'ADMIN_ONLY' | 'ANYONE'
+export type UnitTypeJoinPolicy = 'INVITE_ONLY' | 'OPEN' | 'REQUEST' | string
+export type UnitTypeCreationPolicy = 'ADMIN_ONLY' | 'LEADERS' | 'ANYONE' | string
 
 export interface UnitType {
   id: string
   churchId: string
   name: string
-  description?: string
+  description?: string | null
+  icon?: string | null
+  color?: string | null
   allowMultiplePerUser: boolean
   joinPolicy: UnitTypeJoinPolicy
   creationPolicy: UnitTypeCreationPolicy
@@ -19,50 +19,44 @@ export interface UnitType {
 
 export class UnitTypeService {
   static async create(data: Omit<UnitType, 'id' | 'createdAt' | 'updatedAt'>): Promise<UnitType> {
-    const payload = {
-      ...data,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    const ref = db.collection(COLLECTIONS.unitTypes).doc()
-    await ref.set(payload)
-    return (await this.findById(ref.id)) as UnitType
+    const record = await prisma.unitType.create({
+      data: {
+        churchId: data.churchId,
+        name: data.name,
+        description: data.description ?? null,
+        icon: data.icon ?? null,
+        color: data.color ?? null,
+        allowMultiplePerUser: data.allowMultiplePerUser ?? false,
+        joinPolicy: data.joinPolicy ?? 'INVITE_ONLY',
+        creationPolicy: data.creationPolicy ?? 'ADMIN_ONLY',
+      },
+    })
+    return record as unknown as UnitType
   }
 
   static async findById(id: string): Promise<UnitType | null> {
-    const doc = await db.collection(COLLECTIONS.unitTypes).doc(id).get()
-    if (!doc.exists) return null
-    const data = doc.data()!
-    return {
-      id: doc.id,
-      ...data,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as UnitType
+    const record = await prisma.unitType.findUnique({ where: { id } })
+    if (!record) return null
+    return record as unknown as UnitType
   }
 
   static async findByChurch(churchId: string, limit: number = 200): Promise<UnitType[]> {
-    const snap = await db.collection(COLLECTIONS.unitTypes).where('churchId', '==', churchId).limit(limit).get()
-    return snap.docs.map((doc: any) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        createdAt: toDate(data.createdAt),
-        updatedAt: toDate(data.updatedAt),
-      } as UnitType
+    const records = await prisma.unitType.findMany({
+      where: { churchId },
+      take: limit,
+      orderBy: { name: 'asc' },
     })
+    return records as unknown as UnitType[]
   }
 
   static async update(
     id: string,
-    patch: Partial<Pick<UnitType, 'name' | 'description' | 'allowMultiplePerUser' | 'joinPolicy' | 'creationPolicy'>>
+    patch: Partial<Pick<UnitType, 'name' | 'description' | 'icon' | 'color' | 'allowMultiplePerUser' | 'joinPolicy' | 'creationPolicy'>>
   ): Promise<UnitType> {
-    await db.collection(COLLECTIONS.unitTypes).doc(id).update({
-      ...patch,
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.unitType.update({
+      where: { id },
+      data: patch as any,
     })
-    return (await this.findById(id)) as UnitType
+    return record as unknown as UnitType
   }
 }

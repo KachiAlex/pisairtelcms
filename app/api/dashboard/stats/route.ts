@@ -4,8 +4,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { getCurrentChurch } from '@/lib/church-context'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 export async function GET() {
   try {
@@ -24,74 +23,118 @@ export async function GET() {
       )
     }
 
-    // Get simple counts without date filters to avoid index requirements
-    // We'll use simpler queries that don't require composite indexes
+    const startOfCurrentMonth = new Date()
+    startOfCurrentMonth.setDate(1)
+    startOfCurrentMonth.setHours(0, 0, 0, 0)
+
+    const startOfPreviousMonth = new Date(startOfCurrentMonth)
+    startOfPreviousMonth.setMonth(startOfPreviousMonth.getMonth() - 1)
+
+    // Get stats from Postgres
+    const where = { churchId: church.id }
     const [
       sermonsCount,
       prayerRequestsCount,
       projectsCount,
       eventsCount,
       postsCount,
+      // Current Month
+      currentMonthSermons,
+      currentMonthPrayers,
+      currentMonthGiving,
+      currentMonthEvents,
+      // Previous Month
+      prevMonthSermons,
+      prevMonthPrayers,
+      prevMonthGiving,
+      prevMonthEvents,
     ] = await Promise.all([
-      // Total sermons count
-      db.collection(COLLECTIONS.sermons)
-        .where('churchId', '==', church.id)
-        .count()
-        .get()
-        .catch(() => ({ data: () => ({ count: 0 }) })),
-      // Total prayer requests count
-      db.collection(COLLECTIONS.prayerRequests)
-        .where('churchId', '==', church.id)
-        .count()
-        .get()
-        .catch(() => ({ data: () => ({ count: 0 }) })),
-      // Total projects count
-      db.collection(COLLECTIONS.projects)
-        .where('churchId', '==', church.id)
-        .count()
-        .get()
-        .catch(() => ({ data: () => ({ count: 0 }) })),
-      // Total events count
-      db.collection(COLLECTIONS.events)
-        .where('churchId', '==', church.id)
-        .count()
-        .get()
-        .catch(() => ({ data: () => ({ count: 0 }) })),
-      // Total posts count
-      db.collection(COLLECTIONS.posts)
-        .where('churchId', '==', church.id)
-        .count()
-        .get()
-        .catch(() => ({ data: () => ({ count: 0 }) })),
+      prisma.sermon.count({ where }),
+      prisma.prayerRequest.count({ where }),
+      prisma.project.count({ where }),
+      prisma.event.count({ where }),
+      prisma.post.count({ where }),
+      
+      // Current Month Stats
+      prisma.sermonView.count({
+        where: { createdAt: { gte: startOfCurrentMonth }, sermon: { churchId: church.id } },
+      }),
+      prisma.prayerRequest.count({
+        where: { createdAt: { gte: startOfCurrentMonth }, churchId: church.id },
+      }),
+      prisma.giving.aggregate({
+        where: { createdAt: { gte: startOfCurrentMonth }, user: { churchId: church.id } },
+        _sum: { amount: true },
+      }),
+      prisma.eventAttendance.count({
+        where: { checkedInAt: { gte: startOfCurrentMonth }, event: { churchId: church.id } },
+      }),
+
+      // Previous Month Stats (for comparison)
+      prisma.sermonView.count({
+        where: { 
+          createdAt: { gte: startOfPreviousMonth, lt: startOfCurrentMonth }, 
+          sermon: { churchId: church.id } 
+        },
+      }),
+      prisma.prayerRequest.count({
+        where: { 
+          createdAt: { gte: startOfPreviousMonth, lt: startOfCurrentMonth }, 
+          churchId: church.id 
+        },
+      }),
+      prisma.giving.aggregate({
+        where: { 
+          createdAt: { gte: startOfPreviousMonth, lt: startOfCurrentMonth }, 
+          user: { churchId: church.id } 
+        },
+        _sum: { amount: true },
+      }),
+      prisma.eventAttendance.count({
+        where: { 
+          checkedInAt: { gte: startOfPreviousMonth, lt: startOfCurrentMonth }, 
+          event: { churchId: church.id } 
+        },
+      }),
     ])
 
-    // Return simplified stats without month-over-month comparisons
-    // These can be added later once Firestore indexes are created
+    const calculateChange = (current: number, prev: number) => {
+      if (prev === 0) return current > 0 ? `+${current}` : '+0'
+      const change = current - prev
+      return change >= 0 ? `+${change}` : `${change}`
+    }
+
+    const calculatePercentChange = (current: number, prev: number) => {
+      if (prev === 0) return current > 0 ? '+100%' : '+0%'
+      const percent = ((current - prev) / prev) * 100
+      return `${percent >= 0 ? '+' : ''}${percent.toFixed(0)}%`
+    }
+
     const stats = {
       sermonsWatched: {
-        value: 0,
-        change: '+0',
+        value: currentMonthSermons,
+        change: calculateChange(currentMonthSermons, prevMonthSermons),
       },
       prayerRequests: {
-        value: prayerRequestsCount.data().count || 0,
-        change: '+0',
+        value: prayerRequestsCount,
+        change: calculateChange(currentMonthPrayers, prevMonthPrayers),
       },
       giving: {
-        value: '$0',
-        change: '+0%',
+        value: `$${(currentMonthGiving._sum.amount || 0).toLocaleString()}`,
+        change: calculatePercentChange(currentMonthGiving._sum.amount || 0, prevMonthGiving._sum.amount || 0),
       },
       eventsAttended: {
-        value: 0,
-        change: '+0',
+        value: currentMonthEvents,
+        change: calculateChange(currentMonthEvents, prevMonthEvents),
       },
     }
 
     const quickActions = {
-      sermons: sermonsCount.data().count || 0,
-      prayer: prayerRequestsCount.data().count || 0,
-      giving: projectsCount.data().count || 0,
-      events: eventsCount.data().count || 0,
-      community: postsCount.data().count || 0,
+      sermons: sermonsCount,
+      prayer: prayerRequestsCount,
+      giving: projectsCount,
+      events: eventsCount,
+      community: postsCount,
     }
 
     return NextResponse.json({ stats, quickActions })

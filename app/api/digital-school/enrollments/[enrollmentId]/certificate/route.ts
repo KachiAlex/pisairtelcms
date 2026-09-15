@@ -11,8 +11,7 @@ import {
 import { CertificateService } from '@/lib/services/certificate-service'
 import { UserService } from '@/lib/services/user-service'
 import { UserRole } from '@/types'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 const MANAGER_ROLES: UserRole[] = ['ADMIN', 'PASTOR', 'BRANCH_ADMIN', 'SUPER_ADMIN']
 
@@ -48,15 +47,21 @@ export async function POST(_: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Course not found' }, { status: 404 })
     }
 
-    // Get church signature settings from Firestore
+    // Get church signature settings
     let signatureUrl, signatureTitle, signatureName
     try {
-      const churchDoc = await db.collection(COLLECTIONS.churches).doc(guarded.ctx.church.id).get()
-      if (churchDoc.exists) {
-        const churchData = churchDoc.data()!
-        signatureUrl = churchData.certificateSignatureUrl || undefined
-        signatureTitle = churchData.certificateSignatureTitle || undefined
-        signatureName = churchData.certificateSignatureName || undefined
+      const church = await prisma.church.findUnique({
+        where: { id: guarded.ctx.church.id },
+        select: {
+          certificateSignatureUrl: true,
+          certificateSignatureTitle: true,
+          certificateSignatureName: true,
+        },
+      })
+      if (church) {
+        signatureUrl = church.certificateSignatureUrl || undefined
+        signatureTitle = church.certificateSignatureTitle || undefined
+        signatureName = church.certificateSignatureName || undefined
       }
     } catch (error) {
       console.warn('Could not fetch church signature settings:', error)

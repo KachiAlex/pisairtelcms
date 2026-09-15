@@ -1,8 +1,7 @@
 import { cookies } from 'next/headers'
 import { ChurchService } from './services/church-service'
 import { UserService } from './services/user-service'
-import { db, isFirebaseConfigured } from './firestore'
-import { COLLECTIONS } from './firestore-collections'
+import { prisma } from './prisma'
 import { logger } from '@/lib/logger'
 
 const CHURCH_COOKIE_NAME = 'pi_cms_church_id'
@@ -67,31 +66,23 @@ export async function getCurrentChurch(userId?: string) {
   const church = await ChurchService.findById(churchId)
   if (!church) return null
 
-  if (!isFirebaseConfigured()) {
-    return serialize({
-      ...church,
-      subscription: null,
-    })
-  }
-
   try {
-    // Get subscription if exists
-    const subscriptionSnapshot = await db
-      .collection(COLLECTIONS.subscriptions)
-      .where('churchId', '==', churchId)
-      .limit(1)
-      .get()
+    // Get subscription with plan (Prisma: churchId is unique on Subscription)
+    const subscriptionRecord = await prisma.subscription.findUnique({
+      where: { churchId },
+      include: { plan: true },
+    })
 
-    let subscription = null
-    if (!subscriptionSnapshot.empty) {
-      const subData = subscriptionSnapshot.docs[0].data()
-      const planDoc = await db.collection(COLLECTIONS.subscriptionPlans).doc(subData.planId).get()
-
-      subscription = {
-        ...subData,
-        plan: planDoc.exists ? planDoc.data() : null,
-      }
-    }
+    const subscription = subscriptionRecord
+      ? {
+          ...subscriptionRecord,
+          // Normalize to the legacy API shape used across the app
+          startDate: subscriptionRecord.currentPeriodStart,
+          endDate: subscriptionRecord.currentPeriodEnd,
+          trialEndsAt: subscriptionRecord.trialEnd,
+          plan: subscriptionRecord.plan ?? null,
+        }
+      : null
 
     return serialize({
       ...church,

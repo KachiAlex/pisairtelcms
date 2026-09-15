@@ -7,8 +7,7 @@ import { getCurrentChurch } from '@/lib/church-context'
 import { requirePermissionMiddleware } from '@/lib/middleware/rbac'
 import { UserService } from '@/lib/services/user-service'
 import { MessageService } from '@/lib/services/message-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 export async function POST(request: Request) {
   try {
@@ -46,22 +45,24 @@ export async function POST(request: Request) {
       targetUsers = targetUsers.filter(user => user.role === targetRole)
     }
 
-    // Filter by department
+    // Filter by department (relational membership table)
     if (targetDepartmentId) {
-      const departmentSnapshot = await db.collection(COLLECTIONS.departments).doc(targetDepartmentId).get()
-      const department = departmentSnapshot.data()
-      if (department?.members) {
-        targetUsers = targetUsers.filter(user => department.members.includes(user.id))
-      }
+      const memberships = await prisma.departmentMembership.findMany({
+        where: { departmentId: targetDepartmentId, department: { churchId: church.id } },
+        select: { userId: true },
+      })
+      const memberIds = new Set(memberships.map((m) => m.userId))
+      targetUsers = targetUsers.filter(user => memberIds.has(user.id))
     }
 
-    // Filter by group
+    // Filter by group (relational membership table)
     if (targetGroupId) {
-      const groupSnapshot = await db.collection(COLLECTIONS.groups).doc(targetGroupId).get()
-      const group = groupSnapshot.data()
-      if (group?.members) {
-        targetUsers = targetUsers.filter(user => group.members.includes(user.id))
-      }
+      const memberships = await prisma.groupMembership.findMany({
+        where: { groupId: targetGroupId, group: { churchId: church.id } },
+        select: { userId: true },
+      })
+      const memberIds = new Set(memberships.map((m) => m.userId))
+      targetUsers = targetUsers.filter(user => memberIds.has(user.id))
     }
 
     // Create broadcast messages (simplified - in production, use push notifications)

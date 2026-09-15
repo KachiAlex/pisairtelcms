@@ -3,8 +3,6 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { guardApi } from '@/lib/api-guard'
 import { UnitService, UnitMembershipService } from '@/lib/services/unit-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
 
 export async function PATCH(request: Request, { params }: { params: { unitId: string; membershipId: string } }) {
   const guarded = await guardApi({ requireChurch: true })
@@ -47,12 +45,7 @@ export async function PATCH(request: Request, { params }: { params: { unitId: st
   }
 
   // Update the role
-  await db.collection(COLLECTIONS.unitMemberships).doc(params.membershipId).update({
-    role: newRole
-  })
-
-  // Get updated membership
-  const updatedMembership = await UnitMembershipService.findById(params.membershipId)
+  const updatedMembership = await UnitMembershipService.updateRole(params.membershipId, newRole)
 
   return NextResponse.json({ membership: updatedMembership })
 }

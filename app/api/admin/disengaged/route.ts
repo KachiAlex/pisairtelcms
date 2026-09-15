@@ -2,12 +2,21 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
 import { UserService } from '@/lib/services/user-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { getCurrentChurch } from '@/lib/church-context'
 import { requirePermissionMiddleware } from '@/lib/middleware/rbac'
 
 export const dynamic = 'force-dynamic'
+
+async function countByUsers(model: any, userIds: string[]) {
+  if (!userIds.length) return new Map<string, number>()
+  const rows = await model.groupBy({
+    by: ['userId'],
+    where: { userId: { in: userIds } },
+    _count: { userId: true },
+  })
+  return new Map<string, number>(rows.map((r: any) => [r.userId, r._count.userId]))
+}
 
 export async function GET(request: Request) {
   try {
@@ -34,10 +43,10 @@ export async function GET(request: Request) {
 
     // Get all users in church
     const allUsers = await UserService.findByChurch(church.id)
-    
+
     // Find disengaged users
     const disengagedUsers = allUsers
-      .filter(user => 
+      .filter(user =>
         user.role !== 'VISITOR' &&
         (!user.lastLoginAt || new Date(user.lastLoginAt) < cutoffDate)
       )
@@ -48,52 +57,57 @@ export async function GET(request: Request) {
       })
       .slice(0, 100)
 
-    // Calculate engagement scores
-    const usersWithScores = await Promise.all(
-      disengagedUsers.map(async (user) => {
-        const daysSinceLogin = user.lastLoginAt
-          ? Math.floor(
-              (Date.now() - new Date(user.lastLoginAt).getTime()) /
-                (1000 * 60 * 60 * 24)
-            )
-          : 999
+    const userIds = disengagedUsers.map((u) => u.id)
 
-        // Get counts
-        const [sermonsWatched, giving, eventsAttended, prayerRequests, posts] = await Promise.all([
-          db.collection(COLLECTIONS.sermonViews).where('userId', '==', user.id).count().get(),
-          db.collection(COLLECTIONS.giving).where('userId', '==', user.id).count().get(),
-          db.collection(COLLECTIONS.eventAttendances).where('userId', '==', user.id).count().get(),
-          db.collection(COLLECTIONS.prayerRequests).where('userId', '==', user.id).count().get(),
-          db.collection(COLLECTIONS.posts).where('userId', '==', user.id).count().get(),
-        ])
+    // Batch all per-user counts — 5 queries total instead of ~5 per user
+    const [sermonsWatched, giving, eventsAttended, prayerRequests, posts] = await Promise.all([
+      countByUsers(prisma.sermonView, userIds),
+      countByUsers(prisma.giving, userIds),
+      countByUsers(prisma.eventAttendance, userIds),
+      countByUsers(prisma.prayerRequest, userIds),
+      countByUsers(prisma.post, userIds),
+    ])
 
-        const engagementScore =
-          (sermonsWatched.data().count || 0) * 2 +
-          (giving.data().count || 0) * 3 +
-          (eventsAttended.data().count || 0) * 2 +
-          (prayerRequests.data().count || 0) * 1 +
-          (posts.data().count || 0) * 1
+    const usersWithScores = disengagedUsers.map((user) => {
+      const daysSinceLogin = user.lastLoginAt
+        ? Math.floor(
+            (Date.now() - new Date(user.lastLoginAt).getTime()) /
+              (1000 * 60 * 60 * 24)
+          )
+        : 999
 
-        return {
-          ...user,
-          daysSinceLogin,
-          engagementScore,
-          riskLevel:
-            daysSinceLogin > 90
-              ? 'HIGH'
-              : daysSinceLogin > 60
-              ? 'MEDIUM'
-              : 'LOW',
-          _count: {
-            sermonsWatched: sermonsWatched.data().count || 0,
-            giving: giving.data().count || 0,
-            eventsAttended: eventsAttended.data().count || 0,
-            prayerRequests: prayerRequests.data().count || 0,
-            posts: posts.data().count || 0,
-          },
-        }
-      })
-    )
+      const sermonsCount = sermonsWatched.get(user.id) || 0
+      const givingCount = giving.get(user.id) || 0
+      const eventsCount = eventsAttended.get(user.id) || 0
+      const prayerCount = prayerRequests.get(user.id) || 0
+      const postsCount = posts.get(user.id) || 0
+
+      const engagementScore =
+        sermonsCount * 2 +
+        givingCount * 3 +
+        eventsCount * 2 +
+        prayerCount * 1 +
+        postsCount * 1
+
+      return {
+        ...user,
+        daysSinceLogin,
+        engagementScore,
+        riskLevel:
+          daysSinceLogin > 90
+            ? 'HIGH'
+            : daysSinceLogin > 60
+            ? 'MEDIUM'
+            : 'LOW',
+        _count: {
+          sermonsWatched: sermonsCount,
+          giving: givingCount,
+          eventsAttended: eventsCount,
+          prayerRequests: prayerCount,
+          posts: postsCount,
+        },
+      }
+    })
 
     return NextResponse.json({
       users: usersWithScores,
@@ -112,4 +126,3 @@ export async function GET(request: Request) {
     )
   }
 }
-

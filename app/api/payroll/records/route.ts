@@ -3,8 +3,6 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { PayrollRecordService, PayrollPeriodService, PayrollPositionService } from '@/lib/services/payroll-service'
 import { UserService } from '@/lib/services/user-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
 import { guardApi } from '@/lib/api-guard'
 
 export async function GET(request: Request) {
@@ -22,10 +20,13 @@ export async function GET(request: Request) {
     let records: any[] = []
 
     if (periodId) {
+      // Ensure the period belongs to this church before reading its records
+      const period = await PayrollPeriodService.findById(periodId)
+      if (!period || period.churchId !== church.id) {
+        return NextResponse.json({ error: 'Payroll period not found' }, { status: 404 })
+      }
       records = await PayrollRecordService.findByPeriod(periodId)
     } else {
-      // Get all records for church (would need to query by churchId - may need to add that field)
-      // For now, get by period
       const periods = await PayrollPeriodService.findByChurch(church.id)
       for (const period of periods.slice(0, 10)) {
         const periodRecords = await PayrollRecordService.findByPeriod(period.id)
@@ -41,14 +42,18 @@ export async function GET(request: Request) {
       records = records.filter(r => r.status === status)
     }
 
+    // Fetch periods once instead of per-record
+    const churchPeriods = await PayrollPeriodService.findByChurch(church.id)
+    const periodById = new Map(churchPeriods.map((p) => [p.id, p]))
+
     // Add user, period, and position info
     const recordsWithDetails = await Promise.all(
       records.slice(0, 100).map(async (record) => {
-        const [user, period, position] = await Promise.all([
+        const [user, position] = await Promise.all([
           UserService.findById(record.userId),
-          PayrollPeriodService.findByChurch(church.id).then(periods => periods.find(p => p.id === record.periodId)),
-          PayrollPositionService.findById(record.positionId || ''),
+          record.positionId ? PayrollPositionService.findById(record.positionId) : Promise.resolve(null),
         ])
+        const period = periodById.get(record.periodId)
 
         return {
           ...record,
@@ -61,8 +66,8 @@ export async function GET(request: Request) {
           } : null,
           period: period ? {
             id: period.id,
-            periodName: (period as any).periodName || '',
-            payDate: period.endDate,
+            periodName: period.periodName || '',
+            payDate: period.payDate || period.endDate,
           } : null,
           position: position ? {
             id: position.id,

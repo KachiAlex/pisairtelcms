@@ -52,6 +52,11 @@ export async function POST(request: Request) {
     // Upload to Firebase Storage
     try {
       const { StorageService } = await import('@/lib/services/storage-service')
+      const { UserService } = await import('@/lib/services/user-service')
+
+      const user = await UserService.findById(userId)
+      const previousImage = user?.profileImage
+
       const result = await StorageService.uploadImage(file, {
         userId,
         churchId: church.id,
@@ -60,6 +65,18 @@ export async function POST(request: Request) {
         maxHeight: 512,
         quality: 85,
       })
+
+      // Persist the new avatar on the user record
+      await UserService.update(userId, { profileImage: result.url })
+
+      // Delete the previous avatar from storage to avoid orphaned files
+      if (previousImage && previousImage.includes('blob.vercel-storage.com')) {
+        try {
+          await StorageService.deleteFile(previousImage)
+        } catch (deleteError) {
+          console.error('Failed to delete previous avatar:', deleteError)
+        }
+      }
 
       return NextResponse.json({
         url: result.url,

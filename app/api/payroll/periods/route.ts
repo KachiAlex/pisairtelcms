@@ -2,8 +2,7 @@
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { PayrollPeriodService, PayrollRecordService } from '@/lib/services/payroll-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { guardApi } from '@/lib/api-guard'
 
 export async function GET(request: Request) {
@@ -26,15 +25,14 @@ export async function GET(request: Request) {
     // Add record counts
     const periodsWithCounts = await Promise.all(
       periods.map(async (period) => {
-        const recordsCount = await db.collection(COLLECTIONS.payrollRecords)
-          .where('periodId', '==', period.id)
-          .count()
-          .get()
+        const recordsCount = await prisma.payrollRecord.count({
+          where: { periodId: period.id },
+        })
 
         return {
           ...period,
           _count: {
-            records: recordsCount.data().count || 0,
+            records: recordsCount,
           },
         }
       })
@@ -69,8 +67,10 @@ export async function POST(request: Request) {
 
     const period = await PayrollPeriodService.create({
       churchId: church.id,
+      periodName,
       startDate: new Date(startDate),
       endDate: new Date(endDate),
+      payDate: new Date(payDate),
       status: 'PENDING',
     })
 
@@ -86,15 +86,14 @@ export async function POST(request: Request) {
     }
 
     // Get record count
-    const recordsCount = await db.collection(COLLECTIONS.payrollRecords)
-      .where('periodId', '==', period.id)
-      .count()
-      .get()
+    const recordsCount = await prisma.payrollRecord.count({
+      where: { periodId: period.id },
+    })
 
     return NextResponse.json({
       ...period,
       _count: {
-        records: recordsCount.data().count || 0,
+        records: recordsCount,
       },
     }, { status: 201 })
   } catch (error: any) {

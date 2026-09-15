@@ -1,6 +1,4 @@
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
 
 export interface ChurchRole {
   id: string
@@ -40,133 +38,76 @@ const DEFAULT_ROLES: Array<Omit<ChurchRole, 'id' | 'churchId' | 'createdAt' | 'u
   },
 ]
 
-const toDate = (value: any): Date => (value?.toDate ? value.toDate() : value ? new Date(value) : new Date())
+const toRole = (record: any): ChurchRole => ({
+  id: record.id,
+  churchId: record.churchId,
+  name: record.name,
+  description: record.description ?? undefined,
+  key: record.key ?? undefined,
+  isDefault: Boolean(record.isDefault),
+  isProtected: Boolean(record.isProtected),
+  order: typeof record.order === 'number' ? record.order : 99,
+  createdAt: record.createdAt,
+  updatedAt: record.updatedAt,
+})
 
 export class RoleService {
-  static collection() {
-    return db.collection(COLLECTIONS.churchRoles)
-  }
-
   private static async ensureDefaultRoles(churchId: string) {
-    await Promise.all(
-      DEFAULT_ROLES.map(async (role) => {
-        const snapshot = await this.collection()
-          .where('churchId', '==', churchId)
-          .where('key', '==', role.key)
-          .limit(1)
-          .get()
+    const existing = await prisma.churchRole.findMany({
+      where: { churchId, key: { in: DEFAULT_ROLES.map((r) => r.key!) } },
+      select: { key: true },
+    })
+    const existingKeys = new Set(existing.map((r) => r.key))
 
-        if (snapshot.empty) {
-          const docRef = this.collection().doc()
-          await docRef.set({
-            churchId,
-            ...role,
-            createdAt: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-          })
-        }
-      }),
-    )
+    const missing = DEFAULT_ROLES.filter((r) => !existingKeys.has(r.key!))
+    if (missing.length > 0) {
+      await prisma.churchRole.createMany({
+        data: missing.map((role) => ({
+          churchId,
+          name: role.name,
+          description: role.description,
+          key: role.key,
+          isDefault: role.isDefault,
+          isProtected: role.isProtected,
+          order: role.order,
+        })),
+      })
+    }
   }
 
   static async listByChurch(churchId: string): Promise<ChurchRole[]> {
     await this.ensureDefaultRoles(churchId)
-    const snapshot = await this.collection().where('churchId', '==', churchId).get()
-    const roles = snapshot.docs.map((doc) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        churchId: data.churchId,
-        name: data.name,
-        description: data.description,
-        key: data.key,
-        isDefault: Boolean(data.isDefault),
-        isProtected: Boolean(data.isProtected),
-        order: typeof data.order === 'number' ? data.order : 99,
-        createdAt: toDate(data.createdAt),
-        updatedAt: toDate(data.updatedAt),
-      }
+    const records = await prisma.churchRole.findMany({
+      where: { churchId },
+      orderBy: [{ order: 'asc' }, { name: 'asc' }],
     })
-
-    return roles.sort((a, b) => {
-      const orderDiff = a.order - b.order
-      if (orderDiff !== 0) return orderDiff
-      return a.name.localeCompare(b.name)
-    })
+    return records.map(toRole)
   }
 
   static async get(roleId: string): Promise<ChurchRole | null> {
-    const doc = await this.collection().doc(roleId).get()
-    if (!doc.exists) return null
-    const data = doc.data()!
-    return {
-      id: doc.id,
-      churchId: data.churchId,
-      name: data.name,
-      description: data.description,
-      key: data.key,
-      isDefault: Boolean(data.isDefault),
-      isProtected: Boolean(data.isProtected),
-      order: typeof data.order === 'number' ? data.order : 99,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    }
+    const record = await prisma.churchRole.findUnique({ where: { id: roleId } })
+    return record ? toRole(record) : null
   }
 
   static async getDefaultWorkerRole(churchId: string): Promise<ChurchRole | null> {
     await this.ensureDefaultRoles(churchId)
-    const snapshot = await this.collection()
-      .where('churchId', '==', churchId)
-      .where('key', '==', 'WORKER_DEFAULT')
-      .limit(1)
-      .get()
-    if (snapshot.empty) return null
-    const doc = snapshot.docs[0]
-    const data = doc.data()
-    return {
-      id: doc.id,
-      churchId: data.churchId,
-      name: data.name,
-      description: data.description,
-      key: data.key,
-      isDefault: Boolean(data.isDefault),
-      isProtected: Boolean(data.isProtected),
-      order: typeof data.order === 'number' ? data.order : 99,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    }
+    const record = await prisma.churchRole.findFirst({
+      where: { churchId, key: 'WORKER_DEFAULT' },
+    })
+    return record ? toRole(record) : null
   }
 
   static async create(input: ChurchRoleInput): Promise<ChurchRole> {
     await this.ensureDefaultRoles(input.churchId)
-    const docRef = this.collection().doc()
-    const payload = {
-      churchId: input.churchId,
-      name: input.name,
-      description: input.description ?? '',
-      key: null,
-      isDefault: false,
-      isProtected: false,
-      order: Date.now(),
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    await docRef.set(payload)
-    const created = await docRef.get()
-    const data = created.data()!
-    return {
-      id: created.id,
-      churchId: data.churchId,
-      name: data.name,
-      description: data.description,
-      key: data.key ?? undefined,
-      isDefault: Boolean(data.isDefault),
-      isProtected: Boolean(data.isProtected),
-      order: typeof data.order === 'number' ? data.order : 99,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    }
+    const record = await prisma.churchRole.create({
+      data: {
+        churchId: input.churchId,
+        name: input.name,
+        description: input.description ?? '',
+        order: Date.now(),
+      },
+    })
+    return toRole(record)
   }
 
   static async update(
@@ -174,49 +115,34 @@ export class RoleService {
     churchId: string,
     updates: Partial<Omit<ChurchRoleInput, 'churchId'>>,
   ): Promise<ChurchRole | null> {
-    const docRef = this.collection().doc(roleId)
-    const existing = await docRef.get()
-    if (!existing.exists) return null
-    const data = existing.data()!
-    if (data.churchId !== churchId) {
+    const existing = await prisma.churchRole.findUnique({ where: { id: roleId } })
+    if (!existing) return null
+    if (existing.churchId !== churchId) {
       throw new Error('Cannot edit role from another church')
     }
-    if (data.isProtected) {
+    if (existing.isProtected) {
       throw new Error('Cannot edit default roles')
     }
 
-    await docRef.update({
-      ...updates,
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.churchRole.update({
+      where: { id: roleId },
+      data: {
+        name: updates.name,
+        description: updates.description,
+      },
     })
-
-    const updated = await docRef.get()
-    const updatedData = updated.data()!
-    return {
-      id: updated.id,
-      churchId: updatedData.churchId,
-      name: updatedData.name,
-      description: updatedData.description,
-      key: updatedData.key,
-      isDefault: Boolean(updatedData.isDefault),
-      isProtected: Boolean(updatedData.isProtected),
-      order: typeof updatedData.order === 'number' ? updatedData.order : 99,
-      createdAt: toDate(updatedData.createdAt),
-      updatedAt: toDate(updatedData.updatedAt),
-    }
+    return toRole(record)
   }
 
   static async delete(roleId: string, churchId: string): Promise<void> {
-    const docRef = this.collection().doc(roleId)
-    const existing = await docRef.get()
-    if (!existing.exists) return
-    const data = existing.data()!
-    if (data.churchId !== churchId) {
+    const existing = await prisma.churchRole.findUnique({ where: { id: roleId } })
+    if (!existing) return
+    if (existing.churchId !== churchId) {
       throw new Error('Cannot delete role from another church')
     }
-    if (data.isProtected) {
+    if (existing.isProtected) {
       throw new Error('Cannot delete default roles')
     }
-    await docRef.delete()
+    await prisma.churchRole.delete({ where: { id: roleId } })
   }
 }

@@ -1,7 +1,4 @@
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue } from 'firebase-admin/firestore'
-import type { DocumentSnapshot } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
 
 export type PayFrequencyOption = 'weekly' | 'biweekly' | 'monthly' | 'annual'
 export const STAFF_PAY_FREQUENCIES: PayFrequencyOption[] = ['weekly', 'biweekly', 'monthly', 'annual']
@@ -31,67 +28,38 @@ export interface StaffLevelInput {
   isDefault?: boolean
 }
 
-const toDate = (value: any): Date => (value?.toDate ? value.toDate() : value ? new Date(value) : new Date())
-
 export class StaffLevelService {
-  static collection() {
-    return db.collection(COLLECTIONS.staffLevels)
-  }
-
-  private static mapDoc(doc: DocumentSnapshot): StaffLevel {
-    const data = doc.data()!
-    return {
-      id: doc.id,
-      churchId: data.churchId,
-      name: data.name,
-      description: data.description,
-      defaultWageAmount: data.defaultWageAmount,
-      currency: data.currency,
-      payFrequency: data.payFrequency,
-      order: typeof data.order === 'number' ? data.order : 0,
-      isDefault: Boolean(data.isDefault),
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    }
-  }
-
   static async listByChurch(churchId: string): Promise<StaffLevel[]> {
-    const snapshot = await this.collection().where('churchId', '==', churchId).get()
-    return snapshot.docs
-      .map((doc) => this.mapDoc(doc))
-      .sort((a, b) => {
-        const orderDiff = (a.order ?? 0) - (b.order ?? 0)
-        if (orderDiff !== 0) return orderDiff
-        return a.name.localeCompare(b.name)
-      })
+    const records = await prisma.staffLevel.findMany({
+      where: { churchId },
+      orderBy: [{ order: 'asc' }, { name: 'asc' }],
+    })
+    return records as StaffLevel[]
   }
 
   static async get(churchId: string, staffLevelId: string): Promise<StaffLevel | null> {
-    const doc = await this.collection().doc(staffLevelId).get()
-    if (!doc.exists) return null
-    const data = doc.data()!
-    if (data.churchId !== churchId) return null
-    return this.mapDoc(doc)
+    const record = await prisma.staffLevel.findUnique({ where: { id: staffLevelId } })
+    if (!record || record.churchId !== churchId) return null
+    return record as StaffLevel
   }
 
   static async create(input: StaffLevelInput): Promise<StaffLevel> {
-    const docRef = this.collection().doc()
-    const payload = {
-      churchId: input.churchId,
-      name: input.name,
-      description: input.description ?? '',
-      defaultWageAmount: input.defaultWageAmount,
-      currency: input.currency,
-      payFrequency: input.payFrequency,
-      order: typeof input.order === 'number' ? input.order : Date.now(),
-      isDefault: Boolean(input.isDefault),
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    await docRef.set(payload)
-    const created = await docRef.get()
-    return this.mapDoc(created)
+    const order = typeof input.order === 'number'
+      ? input.order
+      : await prisma.staffLevel.count({ where: { churchId: input.churchId } })
+    const record = await prisma.staffLevel.create({
+      data: {
+        churchId: input.churchId,
+        name: input.name,
+        description: input.description ?? '',
+        defaultWageAmount: input.defaultWageAmount,
+        currency: input.currency,
+        payFrequency: input.payFrequency,
+        order,
+        isDefault: Boolean(input.isDefault),
+      },
+    })
+    return record as StaffLevel
   }
 
   static async update(
@@ -99,31 +67,33 @@ export class StaffLevelService {
     staffLevelId: string,
     updates: Partial<Omit<StaffLevelInput, 'churchId'>>,
   ): Promise<StaffLevel | null> {
-    const docRef = this.collection().doc(staffLevelId)
-    const existing = await docRef.get()
-    if (!existing.exists) return null
-    const data = existing.data()!
-    if (data.churchId !== churchId) {
+    const existing = await prisma.staffLevel.findUnique({ where: { id: staffLevelId } })
+    if (!existing) return null
+    if (existing.churchId !== churchId) {
       throw new Error('Cannot edit staff level from another church')
     }
 
-    await docRef.update({
-      ...updates,
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.staffLevel.update({
+      where: { id: staffLevelId },
+      data: {
+        ...(updates.name !== undefined ? { name: updates.name } : {}),
+        ...(updates.description !== undefined ? { description: updates.description } : {}),
+        ...(updates.defaultWageAmount !== undefined ? { defaultWageAmount: updates.defaultWageAmount } : {}),
+        ...(updates.currency !== undefined ? { currency: updates.currency } : {}),
+        ...(updates.payFrequency !== undefined ? { payFrequency: updates.payFrequency } : {}),
+        ...(updates.order !== undefined ? { order: updates.order } : {}),
+        ...(updates.isDefault !== undefined ? { isDefault: updates.isDefault } : {}),
+      },
     })
-
-    const updated = await docRef.get()
-    return this.mapDoc(updated)
+    return record as StaffLevel
   }
 
   static async delete(churchId: string, staffLevelId: string): Promise<void> {
-    const docRef = this.collection().doc(staffLevelId)
-    const existing = await docRef.get()
-    if (!existing.exists) return
-    const data = existing.data()!
-    if (data.churchId !== churchId) {
+    const existing = await prisma.staffLevel.findUnique({ where: { id: staffLevelId } })
+    if (!existing) return
+    if (existing.churchId !== churchId) {
       throw new Error('Cannot delete staff level from another church')
     }
-    await docRef.delete()
+    await prisma.staffLevel.delete({ where: { id: staffLevelId } })
   }
 }

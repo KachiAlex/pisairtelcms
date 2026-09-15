@@ -602,17 +602,21 @@ export default function MemberDirectory() {
       if (branchFilter) params.append('branchId', branchFilter)
       if (designationFilter) params.append('designationId', designationFilter)
       if (staffFilter) params.append('isStaff', staffFilter)
+      if (roleCategoryFilter) {
+        const categoryRoles: Record<RoleCategory, string[]> = {
+          Admin: ['ADMIN', 'BRANCH_ADMIN', 'SUPER_ADMIN'],
+          Leader: ['PASTOR', 'LEADER'],
+          Worker: ['MEMBER', 'VISITOR', 'VOLUNTEER'],
+        }
+        params.append('roles', categoryRoles[roleCategoryFilter].join(','))
+      }
 
       const response = await fetch(`/api/users?${params}`)
       if (!response.ok) {
         throw new Error('Failed to load users')
       }
       const data = await response.json()
-      let fetchedUsers = data.users as User[]
-      if (roleCategoryFilter) {
-        fetchedUsers = fetchedUsers.filter((user) => roleCategoryFor(user.role) === roleCategoryFilter)
-      }
-      setUsers(fetchedUsers)
+      setUsers(data.users as User[])
       setPagination(data.pagination)
     } catch (error) {
       console.error('Error loading users:', error)

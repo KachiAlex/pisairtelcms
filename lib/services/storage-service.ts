@@ -1,9 +1,12 @@
 /**
  * Storage Service
- * Handles file uploads using Vercel Blob
+ * Handles file uploads to local disk (VPS deployment).
+ * Files are stored under UPLOAD_DIR (default /app/uploads, backed by a
+ * Docker volume) and served via /api/files/<path>.
  */
 
-import { put, del, head } from '@vercel/blob'
+import { mkdir, writeFile, unlink, stat } from 'fs/promises'
+import { join, normalize, extname } from 'path'
 import sharp from 'sharp'
 
 interface UploadOptions {
@@ -24,38 +27,29 @@ interface OptimizedImage {
 }
 
 export class StorageService {
-  private static readonly PUBLIC_HOST = 'https://blob.vercel-storage.com'
-  private static readonly IMAGE_SIZES = {
-    thumbnail: { width: 128, height: 128, label: 'thumb' },
-    medium: { width: 256, height: 256, label: 'med' },
-    original: { width: 512, height: 512, label: 'orig' },
-  }
-
-  private static getToken(): string {
-    const token = process.env.BLOB_READ_WRITE_TOKEN
-    if (!token) {
-      throw new Error('BLOB_READ_WRITE_TOKEN is not configured')
-    }
-    return token
+  /**
+   * Resolve the upload root directory. Kept in sync with the
+   * /api/files/[...path] serving route.
+   */
+  static getUploadDir(): string {
+    return process.env.UPLOAD_DIR || '/app/uploads'
   }
 
   /**
-   * Upload a file to storage
+   * Upload a file to local storage
    */
   static async uploadFile(options: UploadOptions): Promise<{ url: string; path: string }> {
     try {
-      const token = this.getToken()
-      const { data, contentType } = await this.prepareBody(options.file, options.contentType)
+      const { data } = await this.prepareBody(options.file)
       const filePath = this.buildFilePath(options)
-      const { url, pathname } = await put(filePath, data, {
-        access: 'public',
-        contentType,
-        token,
-      })
+      const absPath = join(this.getUploadDir(), filePath)
+
+      await mkdir(join(absPath, '..'), { recursive: true })
+      await writeFile(absPath, data)
 
       return {
-        url,
-        path: pathname || filePath,
+        url: `/api/files/${filePath}`,
+        path: filePath,
       }
     } catch (error: any) {
       console.error('Error uploading file:', error)
@@ -228,10 +222,12 @@ export class StorageService {
   static async deleteFile(filePath: string): Promise<void> {
     try {
       if (!filePath) return
-      const token = this.getToken()
       const target = this.normalizePath(filePath)
-      await del(target, { token })
+      const absPath = join(this.getUploadDir(), target)
+      await unlink(absPath)
     } catch (error: any) {
+      // Missing files are fine — treat as already deleted
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return
       console.error('Error deleting file:', error)
       throw new Error(`File deletion failed: ${error.message}`)
     }
@@ -243,15 +239,11 @@ export class StorageService {
   static async getFileUrl(filePath: string): Promise<string | null> {
     try {
       if (!filePath) return null
-      const token = this.getToken()
       const target = this.normalizePath(filePath)
-      await head(target, { token })
-      return this.buildPublicUrl(target)
-    } catch (error: any) {
-      if (error?.name === 'BlobNotFoundError') {
-        return null
-      }
-      console.error('Error getting file URL:', error)
+      const absPath = join(this.getUploadDir(), target)
+      await stat(absPath)
+      return `/api/files/${target}`
+    } catch {
       return null
     }
   }
@@ -286,18 +278,22 @@ export class StorageService {
     return `${folder}/${userSegment}/${timestamp}-${sanitizedFileName}`
   }
 
+  /**
+   * Convert a stored URL or raw path into a path relative to UPLOAD_DIR.
+   * Rejects traversal outside the upload root.
+   */
   private static normalizePath(filePath: string): string {
     if (!filePath) {
       throw new Error('File path is required')
     }
-    return filePath.startsWith('http') ? filePath : filePath.replace(/^\/+/, '')
-  }
-
-  private static buildPublicUrl(path: string): string {
-    if (path.startsWith('http')) {
-      return path
+    let target = filePath
+    if (target.startsWith('/api/files/')) {
+      target = target.slice('/api/files/'.length)
+    } else if (target.startsWith('http')) {
+      // External URL — nothing to delete locally
+      throw new Error('External file URL')
     }
-    return `${this.PUBLIC_HOST}/${path.replace(/^\/+/, '')}`
+    target = normalize(target).replace(/^(\.\.(\/|\\|$))+/, '')
+    return target.replace(/^\/+/, '')
   }
 }
-

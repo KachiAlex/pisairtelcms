@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { guardApi } from '@/lib/api-guard'
 import { StorageService } from '@/lib/services/storage-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
 
 type RouteParams = {
   params: {
@@ -21,21 +19,26 @@ export async function GET(_: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
-    // Get church signature settings from Firestore
-    const churchDoc = await db.collection(COLLECTIONS.churches).doc(params.churchId).get()
-    
-    if (!churchDoc.exists) {
+    const church = await prisma.church.findUnique({
+      where: { id: params.churchId },
+      select: {
+        name: true,
+        certificateSignatureUrl: true,
+        certificateSignatureTitle: true,
+        certificateSignatureName: true,
+      },
+    })
+
+    if (!church) {
       return NextResponse.json({ error: 'Church not found' }, { status: 404 })
     }
 
-    const churchData = churchDoc.data()!
-    
     return NextResponse.json({
       success: true,
       signature: {
-        url: churchData.certificateSignatureUrl || null,
-        title: churchData.certificateSignatureTitle || 'Lead Pastor',
-        name: churchData.certificateSignatureName || churchData.name || 'Church',
+        url: church.certificateSignatureUrl || null,
+        title: church.certificateSignatureTitle || 'Lead Pastor',
+        name: church.certificateSignatureName || church.name || 'Church',
       }
     })
   } catch (error: any) {
@@ -101,13 +104,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       contentType: file.type,
     })
 
-    // Update church document with signature settings
-    const churchRef = db.collection(COLLECTIONS.churches).doc(params.churchId)
-    await churchRef.update({
-      certificateSignatureUrl: upload.url,
-      certificateSignatureTitle: title || 'Lead Pastor',
-      certificateSignatureName: name || guarded.ctx.church?.name || 'Church',
-      updatedAt: FieldValue.serverTimestamp(),
+    // Update church record with signature settings
+    await prisma.church.update({
+      where: { id: params.churchId },
+      data: {
+        certificateSignatureUrl: upload.url,
+        certificateSignatureTitle: title || 'Lead Pastor',
+        certificateSignatureName: name || guarded.ctx.church?.name || 'Church',
+      },
     })
 
     return NextResponse.json({
@@ -149,13 +153,14 @@ export async function DELETE(_: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Only pastors and admins can delete signatures' }, { status: 403 })
     }
 
-    // Remove signature settings from church document
-    const churchRef = db.collection(COLLECTIONS.churches).doc(params.churchId)
-    await churchRef.update({
-      certificateSignatureUrl: FieldValue.delete(),
-      certificateSignatureTitle: FieldValue.delete(),
-      certificateSignatureName: FieldValue.delete(),
-      updatedAt: FieldValue.serverTimestamp(),
+    // Remove signature settings from church record
+    await prisma.church.update({
+      where: { id: params.churchId },
+      data: {
+        certificateSignatureUrl: null,
+        certificateSignatureTitle: null,
+        certificateSignatureName: null,
+      },
     })
 
     return NextResponse.json({

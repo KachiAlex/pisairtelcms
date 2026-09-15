@@ -197,8 +197,8 @@ export function useMemberEngagementRecommendations(): UseEngagementRecommendatio
       const result = await response.json()
       
       // Convert array back to Map
-      const recommendations = new Map(
-        Object.entries(result.recommendations || {}).map(([key, value]) => [key, value])
+      const recommendations = new Map<string, EngagementRecommendation>(
+        Object.entries(result.recommendations || {}).map(([key, value]) => [key, value as EngagementRecommendation])
       )
       return recommendations
     },
@@ -218,8 +218,8 @@ export function useMemberEngagementRecommendations(): UseEngagementRecommendatio
       const result = await response.json()
       
       // Convert array back to Map
-      return new Map(
-        Object.entries(result.recommendations || {}).map(([key, value]) => [key, value])
+      return new Map<string, EngagementRecommendation>(
+        Object.entries(result.recommendations || {}).map(([key, value]) => [key, value as EngagementRecommendation])
       )
     },
   })
@@ -238,14 +238,21 @@ export function useMemberEngagementRecommendations(): UseEngagementRecommendatio
 /**
  * Hook for content recommendations
  */
+export interface ContentRecommendation {
+  topic: string
+  reason: string
+  priority: number
+  [key: string]: any
+}
+
 export function useContentRecommendations() {
   const { data: session } = useSession()
 
-  const { data = [], isLoading, error, refetch } = useQuery({
+  const { data = [], isLoading, error, refetch } = useQuery<ContentRecommendation[]>({
     queryKey: ['content-recommendations', session?.user?.id],
     queryFn: async () => {
       if (!session?.user?.id) return []
-      
+
       const response = await fetch('/api/recommendations/content')
       if (!response.ok) throw new Error('Failed to fetch content recommendations')
       const data = await response.json()

@@ -7,8 +7,7 @@ import { generateSpiritualGrowthPlan } from '@/lib/ai/openai'
 import { UserService } from '@/lib/services/user-service'
 import { ReadingPlanProgressService } from '@/lib/services/reading-plan-service'
 import { ReadingPlanService } from '@/lib/services/reading-plan-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 export async function POST(request: Request) {
   try {
@@ -26,9 +25,9 @@ export async function POST(request: Request) {
 
     // Get counts
     const [prayerRequestsCount, sermonsWatchedCount, givingCount] = await Promise.all([
-      db.collection(COLLECTIONS.prayerRequests).where('userId', '==', userId).count().get(),
-      db.collection(COLLECTIONS.sermonViews).where('userId', '==', userId).count().get(),
-      db.collection(COLLECTIONS.giving).where('userId', '==', userId).count().get(),
+      prisma.prayerRequest.count({ where: { userId } }),
+      prisma.sermonView.count({ where: { userId } }),
+      prisma.giving.count({ where: { userId } }),
     ])
 
     // Get active reading plans
@@ -42,9 +41,9 @@ export async function POST(request: Request) {
     )
 
     const currentPractices: string[] = []
-    if ((prayerRequestsCount.data().count || 0) > 0) currentPractices.push('Prayer')
-    if ((sermonsWatchedCount.data().count || 0) > 0) currentPractices.push('Sermon listening')
-    if ((givingCount.data().count || 0) > 0) currentPractices.push('Giving')
+    if (prayerRequestsCount > 0) currentPractices.push('Prayer')
+    if (sermonsWatchedCount > 0) currentPractices.push('Sermon listening')
+    if (givingCount > 0) currentPractices.push('Giving')
     if (readingPlans.filter(Boolean).length) currentPractices.push('Reading plans')
 
     const plan = await generateSpiritualGrowthPlan({

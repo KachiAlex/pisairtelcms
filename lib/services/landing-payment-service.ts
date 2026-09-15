@@ -1,5 +1,5 @@
-import { db, FieldValue, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 
 export type LandingPlanPaymentStatus = 'INITIATED' | 'PAID' | 'FAILED'
 
@@ -45,82 +45,87 @@ export type LandingPlanPaymentCreateInput = {
   lastError?: string | null
 }
 
+const serialize = (record: any): LandingPlanPayment | null => {
+  if (!record) return null
+  return {
+    ...record,
+    churchName: record.churchName ?? undefined,
+    phone: record.phone ?? undefined,
+    promoCode: record.promoCode ?? undefined,
+    notes: record.notes ?? undefined,
+    authorizationUrl: record.authorizationUrl ?? undefined,
+    paidAt: record.paidAt ?? undefined,
+  } as LandingPlanPayment
+}
+
 export class LandingPaymentService {
-  private static collection() {
-    return db.collection(COLLECTIONS.landingPlanPayments)
-  }
-
-  private static serialize(doc: FirebaseFirestore.DocumentSnapshot): LandingPlanPayment | null {
-    const data = doc.data()
-    if (!data) return null
-    return {
-      id: doc.id,
-      ...data,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-      paidAt: data.paidAt ? toDate(data.paidAt) : undefined,
-    } as LandingPlanPayment
-  }
-
   static async create(input: LandingPlanPaymentCreateInput) {
-    const docRef = this.collection().doc(input.reference)
-    await docRef.set({
-      ...input,
-      status: input.status || 'INITIATED',
-      transactionId: input.transactionId || null,
-      rawEvent: input.rawEvent || null,
-      lastError: input.lastError || null,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.landingPlanPayment.upsert({
+      where: { reference: input.reference },
+      create: {
+        reference: input.reference,
+        planId: input.planId,
+        planName: input.planName,
+        amount: input.amount,
+        currency: input.currency,
+        fullName: input.fullName,
+        email: input.email,
+        churchName: input.churchName,
+        phone: input.phone,
+        promoCode: input.promoCode,
+        notes: input.notes,
+        status: input.status || 'INITIATED',
+        authorizationUrl: input.authorizationUrl,
+        transactionId: input.transactionId || null,
+        rawEvent: input.rawEvent ?? Prisma.JsonNull,
+        lastError: input.lastError || null,
+      },
+      update: {},
     })
-    const snapshot = await docRef.get()
-    return this.serialize(snapshot)
+    return serialize(record)
   }
 
   static async update(
     reference: string,
     data: Partial<Omit<LandingPlanPayment, 'id' | 'createdAt' | 'updatedAt'>>
   ) {
-    await this.collection().doc(reference).set(
-      {
-        ...data,
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    )
+    await prisma.landingPlanPayment.update({
+      where: { reference },
+      data: data as Prisma.LandingPlanPaymentUpdateInput,
+    })
   }
 
   static async findByReference(reference: string) {
-    const doc = await this.collection().doc(reference).get()
-    return doc.exists ? this.serialize(doc) : null
+    const record = await prisma.landingPlanPayment.findUnique({
+      where: { reference },
+    })
+    return serialize(record)
   }
 
   static async markPaid(
     reference: string,
     options: { transactionId?: string; rawEvent?: any }
   ) {
-    await this.collection().doc(reference).set(
-      {
+    await prisma.landingPlanPayment.update({
+      where: { reference },
+      data: {
         status: 'PAID',
         transactionId: options.transactionId || null,
-        rawEvent: options.rawEvent || null,
-        paidAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
+        rawEvent: options.rawEvent ?? Prisma.JsonNull,
+        paidAt: new Date(),
         lastError: null,
       },
-      { merge: true }
-    )
+    })
   }
 
   static async markFailed(reference: string, reason?: string, options?: { rawEvent?: any }) {
-    await this.collection().doc(reference).set(
-      {
+    await prisma.landingPlanPayment.update({
+      where: { reference },
+      data: {
         status: 'FAILED',
         lastError: reason || null,
-        rawEvent: options?.rawEvent || null,
-        updatedAt: FieldValue.serverTimestamp(),
+        rawEvent: options?.rawEvent ?? undefined,
       },
-      { merge: true }
-    )
+    })
   }
 }

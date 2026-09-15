@@ -1,6 +1,4 @@
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { FieldValue } from 'firebase-admin/firestore'
+import { prisma } from '@/lib/prisma'
 
 export interface EventRegistration {
   id: string
@@ -20,158 +18,138 @@ export interface EventAttendance {
   checkedInAt: Date
 }
 
+function registrationFromPrisma(record: any): EventRegistration {
+  return {
+    id: record.id,
+    userId: record.userId,
+    eventId: record.eventId,
+    ticketNumber: record.ticketNumber,
+    qrCode: record.qrCode,
+    status: record.status,
+    createdAt: record.registeredAt ?? record.createdAt,
+    updatedAt: record.updatedAt ?? record.registeredAt ?? record.createdAt,
+  }
+}
+
+function attendanceFromPrisma(record: any): EventAttendance {
+  return {
+    id: record.id,
+    userId: record.userId,
+    eventId: record.eventId,
+    checkedInAt: record.checkedInAt,
+  }
+}
+
 export class EventRegistrationService {
   static async findById(id: string): Promise<EventRegistration | null> {
-    const doc = await db.collection(COLLECTIONS.eventRegistrations).doc(id).get()
-    if (!doc.exists) return null
-    
-    const data = doc.data()!
-    return {
-      id: doc.id,
-      ...data,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as EventRegistration
+    const record = await prisma.eventRegistration.findUnique({ where: { id } })
+    return record ? registrationFromPrisma(record) : null
   }
 
   static async findByUserAndEvent(userId: string, eventId: string): Promise<EventRegistration | null> {
-    const snapshot = await db.collection(COLLECTIONS.eventRegistrations)
-      .where('userId', '==', userId)
-      .where('eventId', '==', eventId)
-      .limit(1)
-      .get()
-
-    if (snapshot.empty) return null
-
-    const doc = snapshot.docs[0]
-    const data = doc.data()
-    return {
-      id: doc.id,
-      ...data,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as EventRegistration
+    const record = await prisma.eventRegistration.findUnique({
+      where: { userId_eventId: { userId, eventId } },
+    })
+    return record ? registrationFromPrisma(record) : null
   }
 
   static async findByQrCode(eventId: string, qrCode: string): Promise<EventRegistration | null> {
-    const snapshot = await db.collection(COLLECTIONS.eventRegistrations)
-      .where('eventId', '==', eventId)
-      .where('qrCode', '==', qrCode)
-      .limit(1)
-      .get()
-
-    if (snapshot.empty) return null
-
-    const doc = snapshot.docs[0]
-    const data = doc.data()
-    return {
-      id: doc.id,
-      ...data,
-      createdAt: toDate(data.createdAt),
-      updatedAt: toDate(data.updatedAt),
-    } as EventRegistration
+    const record = await prisma.eventRegistration.findFirst({
+      where: { eventId, qrCode },
+    })
+    return record ? registrationFromPrisma(record) : null
   }
 
   static async create(data: Omit<EventRegistration, 'id' | 'createdAt' | 'updatedAt'>): Promise<EventRegistration> {
-    const registrationData = {
-      ...data,
-      status: 'Registered',
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    const docRef = db.collection(COLLECTIONS.eventRegistrations).doc()
-    await docRef.set(registrationData)
-
-    const created = await docRef.get()
-    const createdData = created.data()!
-    return {
-      id: created.id,
-      ...createdData,
-      createdAt: toDate(createdData.createdAt),
-      updatedAt: toDate(createdData.updatedAt),
-    } as EventRegistration
+    const record = await prisma.eventRegistration.create({
+      data: {
+        userId: data.userId,
+        eventId: data.eventId,
+        ticketNumber: data.ticketNumber ?? null,
+        qrCode: data.qrCode ?? null,
+        status: data.status || 'Registered',
+      },
+    })
+    return registrationFromPrisma(record)
   }
 
   static async updateStatus(id: string, status: string): Promise<EventRegistration> {
-    await db.collection(COLLECTIONS.eventRegistrations).doc(id).update({
-      status,
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.eventRegistration.update({
+      where: { id },
+      data: { status },
     })
-    return this.findById(id) as Promise<EventRegistration>
+    return registrationFromPrisma(record)
   }
 
   static async countByEvent(eventId: string): Promise<number> {
-    const snapshot = await db.collection(COLLECTIONS.eventRegistrations)
-      .where('eventId', '==', eventId)
-      .count()
-      .get()
+    return prisma.eventRegistration.count({ where: { eventId } })
+  }
 
-    return snapshot.data().count || 0
+  /**
+   * Registration counts for many events in one query (eventId -> count)
+   */
+  static async countByEvents(eventIds: string[]): Promise<Map<string, number>> {
+    if (!eventIds.length) return new Map()
+    const rows = await prisma.eventRegistration.groupBy({
+      by: ['eventId'],
+      where: { eventId: { in: eventIds } },
+      _count: { eventId: true },
+    })
+    return new Map(rows.map((r) => [r.eventId, r._count.eventId]))
+  }
+
+  /**
+   * A single user's registrations across many events (eventId -> registration)
+   */
+  static async findUserRegistrations(userId: string, eventIds: string[]): Promise<Map<string, EventRegistration>> {
+    if (!eventIds.length) return new Map()
+    const records = await prisma.eventRegistration.findMany({
+      where: { userId, eventId: { in: eventIds } },
+    })
+    return new Map(records.map((r) => [r.eventId, registrationFromPrisma(r)]))
   }
 
   static async listByEvent(eventId: string): Promise<EventRegistration[]> {
-    const snapshot = await db
-      .collection(COLLECTIONS.eventRegistrations)
-      .where('eventId', '==', eventId)
-      .get()
-
-    return snapshot.docs.map((doc) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        createdAt: toDate(data.createdAt),
-        updatedAt: toDate(data.updatedAt),
-      } as EventRegistration
+    const records = await prisma.eventRegistration.findMany({
+      where: { eventId },
+      orderBy: { registeredAt: 'asc' },
     })
+    return records.map(registrationFromPrisma)
   }
 }
 
 export class EventAttendanceService {
   static async create(data: Omit<EventAttendance, 'id' | 'checkedInAt'>): Promise<EventAttendance> {
-    const attendanceData = {
-      ...data,
-      checkedInAt: FieldValue.serverTimestamp(),
-    }
-
-    const docRef = db.collection(COLLECTIONS.eventAttendances).doc()
-    await docRef.set(attendanceData)
-
-    const created = await docRef.get()
-    const createdData = created.data()!
-    return {
-      id: created.id,
-      ...createdData,
-      checkedInAt: toDate(createdData.checkedInAt),
-    } as EventAttendance
+    const record = await prisma.eventAttendance.create({
+      data: {
+        userId: data.userId,
+        eventId: data.eventId,
+      },
+    })
+    return attendanceFromPrisma(record)
   }
 
   static async findByUserAndEvent(userId: string, eventId: string): Promise<EventAttendance | null> {
-    const snapshot = await db.collection(COLLECTIONS.eventAttendances)
-      .where('userId', '==', userId)
-      .where('eventId', '==', eventId)
-      .limit(1)
-      .get()
-
-    if (snapshot.empty) return null
-
-    const doc = snapshot.docs[0]
-    const data = doc.data()
-    return {
-      id: doc.id,
-      ...data,
-      checkedInAt: toDate(data.checkedInAt),
-    } as EventAttendance
+    const record = await prisma.eventAttendance.findUnique({
+      where: { userId_eventId: { userId, eventId } },
+    })
+    return record ? attendanceFromPrisma(record) : null
   }
 
   static async countByEvent(eventId: string): Promise<number> {
-    const snapshot = await db.collection(COLLECTIONS.eventAttendances)
-      .where('eventId', '==', eventId)
-      .count()
-      .get()
+    return prisma.eventAttendance.count({ where: { eventId } })
+  }
 
-    return snapshot.data().count || 0
+  /**
+   * Attendance counts for many events in one query (eventId -> count)
+   */
+  static async countByEvents(eventIds: string[]): Promise<Map<string, number>> {
+    if (!eventIds.length) return new Map()
+    const rows = await prisma.eventAttendance.groupBy({
+      by: ['eventId'],
+      where: { eventId: { in: eventIds } },
+      _count: { eventId: true },
+    })
+    return new Map(rows.map((r) => [r.eventId, r._count.eventId]))
   }
 }
-

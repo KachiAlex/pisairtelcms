@@ -39,7 +39,7 @@ const verseLibrary: DailyVerse[] = [
     reference: 'Psalm 46:1 (NIV)',
     text: 'God is our refuge and strength, an ever-present help in trouble.',
     theme: 'Strength & Refuge',
-    action: 'Invite members to start meetings with a short moment of gratitude for Godâ€™s covering.',
+    action: "Invite members to start meetings with a short moment of gratitude for God's covering.",
   },
   {
     reference: 'Isaiah 43:19 (NIV)',
@@ -51,7 +51,7 @@ const verseLibrary: DailyVerse[] = [
     reference: 'Romans 12:12 (NIV)',
     text: 'Be joyful in hope, patient in affliction, faithful in prayer.',
     theme: 'Hope & Patience',
-    action: 'Share this in the community feed as todayâ€™s focus verse for small groups.',
+    action: "Share this in the community feed as today's focus verse for small groups.",
   },
 ]
 
@@ -131,12 +131,12 @@ export default function DashboardPage() {
 
   const getActivityIcon = (type: string) => {
     const iconMap: Record<string, { gradient: string; icon: string }> = {
-      sermon: { gradient: 'from-purple-500 to-violet-600', icon: 'ðŸ“º' },
-      prayer: { gradient: 'from-primary-500 to-cyan-600', icon: 'ðŸ™' },
-      giving: { gradient: 'from-green-500 to-emerald-600', icon: 'ðŸ’°' },
-      event: { gradient: 'from-orange-500 to-amber-600', icon: 'ðŸ“…' },
+      sermon: { gradient: 'from-purple-500 to-violet-600', icon: '📺' },
+      prayer: { gradient: 'from-primary-500 to-cyan-600', icon: '🙏' },
+      giving: { gradient: 'from-green-500 to-emerald-600', icon: '💰' },
+      event: { gradient: 'from-orange-500 to-amber-600', icon: '📅' },
     }
-    return iconMap[type] || { gradient: 'from-gray-500 to-gray-600', icon: 'âœ¨' }
+    return iconMap[type] || { gradient: 'from-gray-500 to-gray-600', icon: '✨' }
   }
 
   const quickActionsList = [
@@ -144,7 +144,7 @@ export default function DashboardPage() {
       title: 'Sermons',
       description: 'Watch and download sermons',
       href: '/sermons',
-      icon: 'ðŸ“º',
+      icon: '📺',
       gradient: 'from-purple-500 to-violet-600',
       count: quickActions?.sermons || 0,
     },
@@ -152,7 +152,7 @@ export default function DashboardPage() {
       title: 'Prayer Wall',
       description: 'Post and pray for requests',
       href: '/prayer',
-      icon: 'ðŸ™',
+      icon: '🙏',
       gradient: 'from-primary-500 to-cyan-600',
       count: quickActions?.prayer || 0,
     },
@@ -160,7 +160,7 @@ export default function DashboardPage() {
       title: 'Giving',
       description: 'Give to projects and tithes',
       href: '/giving',
-      icon: 'ðŸ’°',
+      icon: '💰',
       gradient: 'from-green-500 to-emerald-600',
       count: quickActions?.giving || 0,
     },
@@ -168,7 +168,7 @@ export default function DashboardPage() {
       title: 'Events',
       description: 'View and register for events',
       href: '/events',
-      icon: 'ðŸ“…',
+      icon: '📅',
       gradient: 'from-orange-500 to-amber-600',
       count: quickActions?.events || 0,
     },
@@ -176,7 +176,7 @@ export default function DashboardPage() {
       title: 'Community',
       description: 'Connect with members',
       href: '/community',
-      icon: 'ðŸ’¬',
+      icon: '💬',
       gradient: 'from-pink-500 to-rose-600',
       count: quickActions?.community || 0,
     },
@@ -184,7 +184,7 @@ export default function DashboardPage() {
       title: 'AI Coaching',
       description: 'Get personalized growth plans',
       href: '/ai/coaching',
-      icon: 'ðŸ¤–',
+      icon: '🤖',
       gradient: 'from-indigo-500 to-purple-600',
       count: 'New',
     },
@@ -236,28 +236,28 @@ export default function DashboardPage() {
           label: 'Sermons Watched',
           value: stats.sermonsWatched.value.toString(),
           change: stats.sermonsWatched.change,
-          icon: 'ðŸ“º',
+          icon: '📺',
           gradient: 'from-purple-500 to-violet-600',
         },
         {
           label: 'Prayer Requests',
           value: stats.prayerRequests.value.toString(),
           change: stats.prayerRequests.change,
-          icon: 'ðŸ™',
+          icon: '🙏',
           gradient: 'from-primary-500 to-cyan-600',
         },
         {
           label: 'Giving This Month',
           value: stats.giving.value,
           change: stats.giving.change,
-          icon: 'ðŸ’°',
+          icon: '💰',
           gradient: 'from-green-500 to-emerald-600',
         },
         {
           label: 'Events Attended',
           value: stats.eventsAttended.value.toString(),
           change: stats.eventsAttended.change,
-          icon: 'ðŸ“…',
+          icon: '📅',
           gradient: 'from-orange-500 to-amber-600',
         },
       ]
@@ -267,7 +267,7 @@ export default function DashboardPage() {
     {
       label: 'Engagement Pulse',
       value: `${derivedStats.sermons + derivedStats.events}`,
-      helper: 'Sermons watched + events attended in the last 30 days',
+      helper: 'Sermons watched + events attended this month',
       tone: 'positive' as const,
     },
     {
@@ -329,7 +329,7 @@ export default function DashboardPage() {
           <h3 className="text-2xl font-bold text-gray-900 mt-2">{dailyVerse?.theme ?? 'Meditation'}</h3>
           <p className="text-sm text-gray-500 mt-1">{dailyVerse?.reference}</p>
           <p className="mt-4 text-lg text-gray-800 leading-relaxed">
-            â€œ{dailyVerse?.text || 'Let everything that has breath praise the Lord.'}â€
+            "{dailyVerse?.text || 'Let everything that has breath praise the Lord.'}"
           </p>
           <div className="mt-5 rounded-xl bg-amber-50 border border-amber-100 p-4">
             <p className="text-xs font-semibold uppercase text-amber-700 tracking-wider">Action prompt</p>
@@ -351,7 +351,7 @@ export default function DashboardPage() {
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary-600 text-white text-sm font-semibold shadow-sm hover:bg-primary-700 transition-colors"
             >
               Open reports
-              <span aria-hidden="true">â†—</span>
+              <span aria-hidden="true">↗</span>
             </Link>
           </div>
 
@@ -437,7 +437,7 @@ export default function DashboardPage() {
 
                 {/* Arrow Icon */}
                 <div className="mt-4 flex items-center text-sm font-semibold text-gray-400 group-hover:text-gray-600 transition-colors">
-                  <span className="group-hover:translate-x-1 transition-transform duration-300">Go â†’</span>
+                  <span className="group-hover:translate-x-1 transition-transform duration-300">Go →</span>
                 </div>
               </div>
             </Link>
@@ -463,7 +463,7 @@ export default function DashboardPage() {
         {recentActivity.length === 0 ? (
           <div className="text-center py-12">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
-              <span className="text-3xl">âœ¨</span>
+              <span className="text-3xl">✨</span>
             </div>
             <p className="text-gray-600 font-medium mb-1">No recent activity yet</p>
             <p className="text-sm text-gray-500">Start engaging with sermons, prayer, giving, and events!</p>

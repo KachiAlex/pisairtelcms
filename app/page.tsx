@@ -1,10 +1,12 @@
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 import { useState, useEffect, useRef, useMemo, type FormEvent, type ChangeEvent } from 'react'
 import {
   Users,
   DollarSign,
+  Heart,
   ClipboardCheck,
   CalendarDays,
   MessageSquare,
@@ -13,6 +15,7 @@ import {
   ShieldCheck,
   RefreshCw,
   Lock,
+  Check,
   type LucideIcon,
 } from 'lucide-react'
 import { LICENSING_PLANS } from '@/lib/licensing/plans'
@@ -396,64 +399,97 @@ export default function Home() {
         <div className="absolute rounded-full blur-[70px] opacity-55 z-0 w-[420px] h-[420px] top-[-140px] right-[-60px]" style={{ background: 'radial-gradient(circle,#fbe6ee 0%,transparent 72%)', animation: 'floatA 24s ease-in-out infinite' }} />
         <div className="absolute rounded-full blur-[70px] opacity-55 z-0 w-[360px] h-[360px] bottom-[-120px] left-[18%]" style={{ background: 'radial-gradient(circle,#fdecd0 0%,transparent 72%)', animation: 'floatB 28s ease-in-out infinite' }} />
         <div className="max-w-[1180px] mx-auto px-8 flex gap-10 items-center relative z-1 max-md:flex-col">
-          <div className="w-1/2 max-md:w-full">
-            <div className="reveal in inline-flex items-center font-['JetBrains_Mono'] text-[11.5px] tracking-[0.16em] uppercase text-[#9b9a94] mb-6 border border-[#d5cfc0] rounded-full px-3.5 py-1.5">
+          <div className="w-1/2 max-md:w-full relative z-30 p-6 rounded-2xl bg-[#fbfaf6]/80 backdrop-blur-sm border border-white/15 shadow-sm">
+            <div className="reveal in inline-flex items-center font-['JetBrains_Mono'] text-[11.5px] tracking-[0.16em] uppercase text-[#9b9a94] mb-6 border border-[#d5cfc0]/30 rounded-full px-3.5 py-1.5 bg-white/40">
               <span className="w-1.5 h-1.5 rounded-full bg-[#e31e24] mr-2" />
               Pisairtel CMS &middot; Church Management
             </div>
             <h1 className="reveal in font-['Fraunces'] font-[560] text-[clamp(36px,4.6vw,54px)] leading-[1.08] tracking-[-0.01em]">
               Care for your congregation.<br />Let the software handle <em className="italic font-[500] text-[#e31e24]">the rest</em>.
             </h1>
-            <p className="reveal in mt-5 text-[16.5px] leading-[1.65] text-[#5b5c63] max-w-[460px]">
-              Membership, giving, attendance, and communication — one connected system built around how churches actually run, from Sunday service to the Wednesday small group.
+            <p className="reveal in mt-6 text-[18.5px] leading-[1.7] text-[#3d3934] max-w-[540px] font-medium">
+              Membership, giving, attendance, communication and more — one connected system built for churches of any size.
             </p>
             <div className="reveal in mt-8 flex flex-wrap gap-3.5">
               <Link href="/auth/register" className="inline-flex items-center gap-1.5 px-6 py-3.5 rounded-md bg-[#e31e24] text-white text-[14.5px] font-semibold hover:bg-[#cf1a1f] hover:-translate-y-px hover:shadow-lg hover:shadow-red-500/30 transition-all">
-                Start free trial
+                Get Started
                 <ArrowRight className="w-[15px] h-[15px]" />
               </Link>
-              <a href="#showcase" className="inline-flex items-center px-6 py-3.5 rounded-md border border-[#d5cfc0] text-[#15161a] text-[14.5px] font-semibold hover:border-[#15161a] transition-colors">See how it works</a>
+              <a href="#showcase" className="inline-flex items-center px-6 py-3.5 rounded-md border border-[#d5cfc0] text-[#15161a] text-[14.5px] font-semibold hover:border-[#15161a] transition-colors">See How It Works</a>
             </div>
-            <div className="reveal in mt-11 flex gap-9">
-              <div className="font-['JetBrains_Mono'] text-[12px] text-[#9b9a94]"><b className="block font-['Fraunces'] text-[22px] text-[#15161a] font-semibold mb-0.5">1</b>Record per member</div>
-              <div className="font-['JetBrains_Mono'] text-[12px] text-[#9b9a94]"><b className="block font-['Fraunces'] text-[22px] text-[#15161a] font-semibold mb-0.5">Live</b>Giving &amp; attendance</div>
-              <div className="font-['JetBrains_Mono'] text-[12px] text-[#9b9a94]"><b className="block font-['Fraunces'] text-[22px] text-[#15161a] font-semibold mb-0.5">All</b>Campuses, one login</div>
+            <div className="reveal in mt-11 grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-[540px]">
+              <div className="flex flex-col items-start gap-2.5">
+                <div className="w-11 h-11 rounded-full bg-gradient-to-br from-[#e31e24] to-[#f7931e] flex items-center justify-center text-white shadow-md">
+                  <Users className="w-5 h-5" />
+                </div>
+                <span className="text-[12.5px] font-medium text-[#5b5c63] leading-tight">Member<br />Management</span>
+              </div>
+              <div className="flex flex-col items-start gap-2.5">
+                <div className="w-11 h-11 rounded-full bg-gradient-to-br from-[#e31e24] to-[#f7931e] flex items-center justify-center text-white shadow-md">
+                  <Heart className="w-5 h-5" />
+                </div>
+                <span className="text-[12.5px] font-medium text-[#5b5c63] leading-tight">Giving &amp;<br />Donations</span>
+              </div>
+              <div className="flex flex-col items-start gap-2.5">
+                <div className="w-11 h-11 rounded-full bg-gradient-to-br from-[#e31e24] to-[#f7931e] flex items-center justify-center text-white shadow-md">
+                  <CalendarDays className="w-5 h-5" />
+                </div>
+                <span className="text-[12.5px] font-medium text-[#5b5c63] leading-tight">Attendance &amp;<br />Events</span>
+              </div>
+              <div className="flex flex-col items-start gap-2.5">
+                <div className="w-11 h-11 rounded-full bg-gradient-to-br from-[#e31e24] to-[#f7931e] flex items-center justify-center text-white shadow-md">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <span className="text-[12.5px] font-medium text-[#5b5c63] leading-tight">Communication<br />Made Easy</span>
+              </div>
             </div>
           </div>
           <div className="w-1/2 max-md:w-full">
-            <div className="reveal in relative h-[400px]" ref={stackRef}>
-              <div className="absolute inset-0 transition-transform duration-150 ease-out" ref={tiltRef}>
-                <div className="absolute w-[320px] rounded-2xl bg-white border border-[#e6e2d8] shadow-2xl overflow-hidden top-[60px] left-2.5 h-[220px]" style={{ transform: 'rotate(-6deg)' }}>
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-[#e6e2d8]"><div className="flex gap-1.5"><span className="w-[7px] h-[7px] rounded-full bg-[#d5cfc0]" /><span className="w-[7px] h-[7px] rounded-full bg-[#d5cfc0]" /><span className="w-[7px] h-[7px] rounded-full bg-[#d5cfc0]" /></div></div>
-                  <div className="p-4"><div className="h-[9px] rounded bg-[#f3f1ea] mb-2 w-3/5" /><div className="h-[9px] rounded bg-[#f3f1ea] mb-2 w-[85%]" /><div className="h-[9px] rounded bg-[#f3f1ea] w-2/5" /></div>
+            <div
+              className="reveal in relative min-h-[660px] max-md:min-h-[480px] flex items-center justify-end max-md:justify-center -mr-[88px] max-md:mr-0"
+              ref={stackRef}
+            >
+              <div
+                className="absolute w-[690px] h-[490px] right-[42px] top-1/2 -translate-y-1/2 rounded-full blur-[5px] max-md:hidden -z-10"
+                style={{
+                  background:
+                    'radial-gradient(circle, rgba(255,255,255,.92) 0% 25%, rgba(255,237,225,.56) 46%, rgba(237,28,36,.055) 68%, transparent 74%)',
+                }}
+              />
+              <Image
+                src="/hero-dashboard.png"
+                alt="Pisairtel CMS church management illustration"
+                width={850}
+                height={600}
+                unoptimized
+                className="w-full md:w-[56vw] md:max-w-[850px] h-auto relative z-0 translate-y-[8px]"
+                style={{
+                  filter: 'drop-shadow(0 30px 48px rgba(49,35,19,.13)) saturate(.98) contrast(1.01)',
+                }}
+                priority
+              />
+
+              <div className="absolute right-[105px] top-[106px] w-[205px] z-20 p-4 rounded-[14px] border border-[rgba(221,211,197,.9)] bg-[rgba(255,253,249,.88)] backdrop-blur-md shadow-[0_18px_40px_rgba(37,27,17,.11)] max-md:hidden">
+                <div className="flex items-center gap-2 text-[11px] tracking-[0.12em] uppercase text-[#777066]">
+                  <span className="w-2 h-2 rounded-full bg-[#38b26d] shadow-[0_0_0_4px_rgba(56,178,109,.12)]" />
+                  Live Church Data
                 </div>
-                <div className="absolute w-[320px] rounded-2xl bg-white border border-[#e6e2d8] shadow-2xl overflow-hidden top-[34px] left-[76px] h-[220px]" style={{ transform: 'rotate(4deg)' }}>
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-[#e6e2d8]"><div className="flex gap-1.5"><span className="w-[7px] h-[7px] rounded-full bg-[#d5cfc0]" /><span className="w-[7px] h-[7px] rounded-full bg-[#d5cfc0]" /><span className="w-[7px] h-[7px] rounded-full bg-[#d5cfc0]" /></div></div>
-                  <div className="p-4">
-                    <div className="flex items-center py-1.5 border-b border-[#f3f1ea]"><div className="w-[26px] h-[26px] rounded-full bg-gradient-to-br from-[#f7931e] to-[#e8286e] shrink-0 mr-2.5" /><div className="flex-1"><div className="h-[9px] rounded bg-[#f3f1ea] mb-1 w-[70%]" /><div className="h-[6px] rounded bg-[#f3f1ea] w-2/5" /></div></div>
-                    <div className="flex items-center py-1.5 border-b border-[#f3f1ea]"><div className="w-[26px] h-[26px] rounded-full bg-gradient-to-br from-[#f7931e] to-[#e8286e] shrink-0 mr-2.5" /><div className="flex-1"><div className="h-[9px] rounded bg-[#f3f1ea] mb-1 w-[55%]" /><div className="h-[6px] rounded bg-[#f3f1ea] w-[35%]" /></div></div>
-                    <div className="flex items-center py-1.5"><div className="w-[26px] h-[26px] rounded-full bg-gradient-to-br from-[#f7931e] to-[#e8286e] shrink-0 mr-2.5" /><div className="flex-1"><div className="h-[9px] rounded bg-[#f3f1ea] mb-1 w-[65%]" /><div className="h-[6px] rounded bg-[#f3f1ea] w-[30%]" /></div></div>
-                  </div>
+                <div className="mt-2 font-['Fraunces'] text-lg leading-tight font-bold text-[#15161a]">
+                  Everything in one place.
                 </div>
-                <div className="absolute w-[320px] rounded-2xl bg-white border border-[#e6e2d8] shadow-2xl overflow-hidden top-[82px] left-9 h-[236px] z-3" style={{ animation: 'floatCard 6s ease-in-out infinite' }}>
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-[#e6e2d8]">
-                    <div className="flex gap-1.5"><span className="w-[7px] h-[7px] rounded-full bg-[#d5cfc0]" /><span className="w-[7px] h-[7px] rounded-full bg-[#d5cfc0]" /><span className="w-[7px] h-[7px] rounded-full bg-[#d5cfc0]" /></div>
-                    <div className="flex items-center font-['JetBrains_Mono'] text-[10px] text-[#9b9a94]"><span className="w-1.5 h-1.5 rounded-full bg-[#2fae66] mr-1.5" style={{ boxShadow: '0 0 0 3px rgba(47,174,102,.15)' }} />CMS &middot; live</div>
-                  </div>
-                  <div className="p-4">
-                    <div className="h-[9px] rounded bg-[#f3f1ea] mb-2 w-[45%]" />
-                    <div className="h-[9px] rounded bg-[#f3f1ea] mb-3 w-3/4" />
-                    <div className="flex items-end h-16 gap-1.5">
-                      <i className="flex-1 rounded-t bg-gradient-to-b from-[#e8286e] to-[#f7931e] opacity-85" style={{ height: '35%' }} />
-                      <i className="flex-1 rounded-t bg-gradient-to-b from-[#e8286e] to-[#f7931e] opacity-85" style={{ height: '58%' }} />
-                      <i className="flex-1 rounded-t bg-gradient-to-b from-[#e8286e] to-[#f7931e] opacity-85" style={{ height: '44%' }} />
-                      <i className="flex-1 rounded-t bg-gradient-to-b from-[#e8286e] to-[#f7931e] opacity-85" style={{ height: '82%' }} />
-                      <i className="flex-1 rounded-t bg-gradient-to-b from-[#e8286e] to-[#f7931e] opacity-85" style={{ height: '50%' }} />
-                      <i className="flex-1 rounded-t bg-gradient-to-b from-[#e8286e] to-[#f7931e] opacity-85" style={{ height: '70%' }} />
-                      <i className="flex-1 rounded-t bg-gradient-to-b from-[#e8286e] to-[#f7931e] opacity-85" style={{ height: '62%' }} />
-                    </div>
-                  </div>
+                <div className="mt-1 text-xs leading-relaxed text-[#8a8176]">
+                  Members, giving, attendance, events and communication stay connected.
                 </div>
+              </div>
+
+              <div className="absolute right-[36px] bottom-[125px] z-20 inline-flex items-center gap-2.5 px-3 py-2.5 rounded-full bg-[#161616] text-white text-xs shadow-[0_14px_30px_rgba(0,0,0,.18)] max-md:hidden">
+                <span className="w-6 h-6 rounded-full bg-gradient-to-br from-[#e31e24] to-[#ff7b10] flex items-center justify-center">
+                  <Check className="w-3.5 h-3.5 text-white" strokeWidth={2.5} />
+                </span>
+                <span className="font-['Fraunces'] text-[13px] leading-tight">
+                  <strong>Built for churches</strong>
+                  <br />Simple to use every day
+                </span>
               </div>
             </div>
           </div>

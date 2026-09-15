@@ -5,8 +5,7 @@ import { guardApi } from '@/lib/api-guard'
 import { UserService } from '@/lib/services/user-service'
 import { AccountingExpenseService } from '@/lib/services/accounting-expense-service'
 import { AccountingIncomeService } from '@/lib/services/accounting-income-service'
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 
 type LedgerItem = {
   kind: 'income' | 'expense'
@@ -40,14 +39,15 @@ export async function GET(request: Request) {
     const startDate = start ? new Date(start) : undefined
     const endDate = end ? new Date(end) : undefined
 
-    // NOTE: Avoid Firestore range queries here to prevent composite index/orderBy requirements.
-    // We fetch by churchId/branchId only and filter by date in-memory.
-    let donationsQuery: any = db.collection(COLLECTIONS.donations).where('churchId', '==', church.id)
-    if (effectiveBranchId) donationsQuery = donationsQuery.where('branchId', '==', effectiveBranchId)
-    donationsQuery = donationsQuery.limit(500)
-
-    const [donationsSnap, expenses, manualIncome] = await Promise.all([
-      donationsQuery.get(),
+    // Fetch by churchId/branchId only and filter by date in-memory to keep the query index-free.
+    const [donationsRows, expenses, manualIncome] = await Promise.all([
+      prisma.giving.findMany({
+        where: {
+          churchId: church.id,
+          ...(effectiveBranchId ? { branchId: effectiveBranchId } : {}),
+        },
+        take: 500,
+      }),
       AccountingExpenseService.findByChurch(church.id, {
         branchId: effectiveBranchId,
         startDate,
@@ -62,13 +62,12 @@ export async function GET(request: Request) {
       }),
     ])
 
-    const income: LedgerItem[] = donationsSnap.docs
-      .map((doc: any) => {
-        const data = doc.data()
-        const createdAt = toDate(data.createdAt)
+    const income: LedgerItem[] = donationsRows
+      .map((data: any) => {
+        const createdAt = data.createdAt
         return {
           kind: 'income',
-          id: doc.id,
+          id: data.id,
           branchId: data.branchId || undefined,
           currency: data.currency || undefined,
           amount: Number(data.amount || 0),
@@ -90,11 +89,11 @@ export async function GET(request: Request) {
       })
 
     const manualIncomeItems: LedgerItem[] = manualIncome
-      .map((m) => ({
+      .map((m): LedgerItem => ({
         kind: 'income',
         id: m.id,
-        branchId: m.branchId,
-        currency: m.currency,
+        branchId: m.branchId ?? undefined,
+        currency: m.currency ?? undefined,
         amount: Number(m.amount || 0),
         title: `Manual: ${m.source}${m.description ? ` - ${m.description}` : ''}`,
         date: m.incomeDate.toISOString(),
@@ -106,11 +105,11 @@ export async function GET(request: Request) {
         },
       }))
 
-    const expenseItems: LedgerItem[] = expenses.map((e) => ({
+    const expenseItems: LedgerItem[] = expenses.map((e): LedgerItem => ({
       kind: 'expense',
       id: e.id,
-      branchId: e.branchId,
-      currency: e.currency,
+      branchId: e.branchId ?? undefined,
+      currency: e.currency ?? undefined,
       amount: Number(e.amount || 0),
       title: `${e.category}${e.description ? ` - ${e.description}` : ''}`,
       date: e.expenseDate.toISOString(),

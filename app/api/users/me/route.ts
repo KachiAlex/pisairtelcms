@@ -36,6 +36,8 @@ export async function GET() {
       spiritualMaturity: (userWithoutPassword as any).spiritualMaturity,
       profileImage: userWithoutPassword.profileImage,
       bio: (userWithoutPassword as any).bio,
+      spouseId: userWithoutPassword.spouseId || null,
+      parentId: userWithoutPassword.parentId || null,
       xp: userWithoutPassword.xp || 0,
       level: userWithoutPassword.level || 1,
       createdAt: userWithoutPassword.createdAt,

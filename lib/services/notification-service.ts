@@ -1,277 +1,252 @@
-import { db, FieldValue } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
-import { RealtimeServer } from '@/lib/realtime/server'
-
-export interface NotificationPayload {
-  userId: string
-  churchId: string
-  title: string
-  message: string
-  type: 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'REMINDER'
-  link?: string
-  icon?: string
-  actionUrl?: string
-  metadata?: Record<string, any>
-}
+import { prisma } from '@/lib/prisma'
+import type { NotificationType, Prisma } from '@prisma/client'
 
 /**
  * Notification Service
- * Handles real-time and persistent notifications
+ *
+ * Creates notifications in PostgreSQL and pushes them to the realtime
+ * server for live delivery via SSE.
  */
+
+// Base notification structure
+export interface BaseNotification {
+  id: string
+  churchId: string
+  userId: string
+  type: NotificationType
+  title: string
+  message: string
+  read: boolean
+  readAt?: Date | null
+  deleted?: boolean
+  deletedAt?: Date | null
+  actionUrl?: string | null
+  link?: string | null
+  icon?: string | null
+  metadata?: Record<string, any>
+  createdAt: Date
+  updatedAt: Date
+}
+
+export type Notification = BaseNotification
+
+export interface CreateNotificationData {
+  churchId: string
+  userId: string
+  type: NotificationType
+  title: string
+  message: string
+  actionUrl?: string
+  link?: string
+  icon?: string
+  metadata?: Record<string, any>
+}
+
 export class NotificationService {
-  /**
-   * Send notification to user
-   */
-  static async sendNotification(payload: NotificationPayload): Promise<string> {
-    const notificationId = db.collection(COLLECTIONS.notifications).doc().id
-
-    // Save notification to database
-    await db.collection(COLLECTIONS.notifications).doc(notificationId).set({
-      userId: payload.userId,
-      churchId: payload.churchId,
-      title: payload.title,
-      message: payload.message,
-      type: payload.type,
-      link: payload.link,
-      icon: payload.icon,
-      actionUrl: payload.actionUrl,
-      metadata: payload.metadata || {},
-      read: false,
-      deleted: false,
-      createdAt: FieldValue.serverTimestamp(),
-      readAt: null,
-    })
-
-    // Emit real-time notification
-    RealtimeServer.sendToUser(payload.userId, 'notification:sent', {
-      id: notificationId,
-      ...payload,
-      createdAt: new Date(),
-    })
-
-    return notificationId
+  private static toNotification(record: any): Notification {
+    return {
+      ...record,
+      metadata: (record.metadata as Record<string, any>) ?? undefined,
+    }
   }
 
   /**
-   * Send notification to multiple users
+   * Create a notification and push to realtime server
    */
-  static async sendNotificationToMany(
-    userIds: string[],
-    churchId: string,
-    payload: Omit<NotificationPayload, 'userId' | 'churchId'>
-  ): Promise<string[]> {
-    const notificationIds = []
+  static async sendNotification(data: CreateNotificationData): Promise<Notification> {
+    const { churchId, userId, type, title, message, actionUrl, link, icon, metadata } = data
 
-    for (const userId of userIds) {
-      const id = await this.sendNotification({
-        ...payload,
-        userId,
+    const record = await prisma.notification.create({
+      data: {
         churchId,
+        userId,
+        type,
+        title,
+        message,
+        actionUrl,
+        link,
+        icon,
+        metadata: metadata as Prisma.InputJsonValue,
+        status: 'SENT',
+        sentAt: new Date(),
+      },
+    })
+
+    const notification = this.toNotification(record)
+
+    try {
+      await this.pushToRealtimeServer(userId, {
+        id: notification.id,
+        type: notification.type,
+        title: notification.title,
+        message: notification.message,
+        actionUrl: notification.actionUrl,
+        metadata: notification.metadata,
+        createdAt: notification.createdAt.toISOString(),
       })
-      notificationIds.push(id)
+    } catch (error) {
+      console.error('Failed to push notification to realtime server:', error)
+      // Don't fail the whole operation if realtime push fails
     }
 
-    return notificationIds
+    return notification
   }
 
   /**
-   * Send notification to all church members
+   * Broadcast a notification to multiple users (batched insert + parallel pushes)
    */
-  static async broadcastToChurch(
-    churchId: string,
-    payload: Omit<NotificationPayload, 'churchId' | 'userId'>
-  ): Promise<void> {
-    // Get all users in church
-    const usersSnapshot = await db
-      .collection(COLLECTIONS.users)
-      .where('churchId', '==', churchId)
-      .get()
+  static async broadcast(data: Omit<CreateNotificationData, 'userId'>, userIds: string[]): Promise<void> {
+    if (userIds.length === 0) return
+    const { churchId, type, title, message, actionUrl, link, icon, metadata } = data
 
-    const userIds = usersSnapshot.docs.map(doc => doc.id)
+    const now = new Date()
+    await prisma.notification.createMany({
+      data: userIds.map((userId) => ({
+        churchId,
+        userId,
+        type,
+        title,
+        message,
+        actionUrl,
+        link,
+        icon,
+        metadata: metadata as Prisma.InputJsonValue,
+        status: 'SENT' as const,
+        sentAt: now,
+      })),
+    })
 
-    await this.sendNotificationToMany(userIds, churchId, payload)
+    const payload = {
+      type,
+      title,
+      message,
+      actionUrl,
+      metadata,
+      createdAt: now.toISOString(),
+    }
 
-    // Also broadcast to connected users in real-time
-    RealtimeServer.broadcastToChurch(churchId, 'notification:sent', payload)
+    await Promise.allSettled(userIds.map((userId) => this.pushToRealtimeServer(userId, payload)))
   }
 
   /**
-   * Mark notification as read
+   * Push notification to realtime server for instant delivery
    */
-  static async markAsRead(notificationId: string): Promise<void> {
-    await db.collection(COLLECTIONS.notifications).doc(notificationId).update({
-      read: true,
-      readAt: FieldValue.serverTimestamp(),
+  private static async pushToRealtimeServer(userId: string, notification: any): Promise<void> {
+    const realtimeUrl = process.env.REALTIME_SERVER_URL || 'http://realtime:3001'
+    const secret = process.env.REALTIME_API_KEY
+
+    try {
+      const response = await fetch(`${realtimeUrl}/api/notifications/send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(secret ? { 'x-api-key': secret } : {}),
+        },
+        body: JSON.stringify({
+          userId,
+          notification,
+        }),
+        signal: AbortSignal.timeout(5000), // 5s timeout
+      })
+
+      if (!response.ok) {
+        console.warn(`Realtime push failed for user ${userId}:`, response.status)
+      }
+    } catch (error) {
+      console.warn('Realtime server unreachable:', error instanceof Error ? error.message : error)
+    }
+  }
+
+  /**
+   * Get recent notifications for a user (excludes deleted)
+   */
+  static async getRecentNotifications(userId: string, limit = 20): Promise<Notification[]> {
+    const records = await prisma.notification.findMany({
+      where: { userId, deleted: false },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    })
+    return records.map((r) => this.toNotification(r))
+  }
+
+  /**
+   * Get unread notifications for a user (excludes deleted)
+   */
+  static async getUnreadNotifications(userId: string, limit = 50): Promise<Notification[]> {
+    const records = await prisma.notification.findMany({
+      where: { userId, read: false, deleted: false },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    })
+    return records.map((r) => this.toNotification(r))
+  }
+
+  /**
+   * Get unread count for user
+   */
+  static async getUnreadCount(userId: string): Promise<number> {
+    return prisma.notification.count({
+      where: { userId, read: false, deleted: false },
     })
   }
 
   /**
-   * Mark multiple notifications as read
+   * Mark notification as read (scoped to owner)
    */
-  static async markManyAsRead(notificationIds: string[]): Promise<void> {
-    const batch = db.batch()
-
-    for (const id of notificationIds) {
-      batch.update(db.collection(COLLECTIONS.notifications).doc(id), {
-        read: true,
-        readAt: FieldValue.serverTimestamp(),
-      })
-    }
-
-    await batch.commit()
-  }
-
-  /**
-   * Delete notification
-   */
-  static async deleteNotification(notificationId: string): Promise<void> {
-    await db.collection(COLLECTIONS.notifications).doc(notificationId).update({
-      deleted: true,
-      deletedAt: FieldValue.serverTimestamp(),
+  static async markAsRead(notificationId: string, userId?: string): Promise<void> {
+    await prisma.notification.updateMany({
+      where: { id: notificationId, ...(userId ? { userId } : {}) },
+      data: { read: true, readAt: new Date() },
     })
   }
 
   /**
-   * Clear all notifications for user
+   * Mark multiple notifications as read (scoped to owner when provided)
+   */
+  static async markManyAsRead(notificationIds: string[], userId?: string): Promise<void> {
+    await prisma.notification.updateMany({
+      where: { id: { in: notificationIds }, ...(userId ? { userId } : {}) },
+      data: { read: true, readAt: new Date() },
+    })
+  }
+
+  /**
+   * Mark all notifications as read for a user
+   */
+  static async markAllAsRead(userId: string): Promise<void> {
+    await prisma.notification.updateMany({
+      where: { userId, read: false, deleted: false },
+      data: { read: true, readAt: new Date() },
+    })
+  }
+
+  /**
+   * Delete a notification (soft delete, scoped to owner)
+   */
+  static async deleteNotification(notificationId: string, userId?: string): Promise<void> {
+    await prisma.notification.updateMany({
+      where: { id: notificationId, ...(userId ? { userId } : {}) },
+      data: { deleted: true, deletedAt: new Date() },
+    })
+  }
+
+  /**
+   * Soft-delete multiple notifications (scoped to owner)
+   */
+  static async deleteManyNotifications(notificationIds: string[], userId?: string): Promise<void> {
+    await prisma.notification.updateMany({
+      where: { id: { in: notificationIds }, ...(userId ? { userId } : {}) },
+      data: { deleted: true, deletedAt: new Date() },
+    })
+  }
+
+  /**
+   * Soft-delete all notifications for a user
    */
   static async clearAllNotifications(userId: string): Promise<void> {
-    const snapshot = await db
-      .collection(COLLECTIONS.notifications)
-      .where('userId', '==', userId)
-      .where('deleted', '==', false)
-      .get()
-
-    const batch = db.batch()
-
-    snapshot.docs.forEach(doc => {
-      batch.update(doc.ref, {
-        deleted: true,
-        deletedAt: FieldValue.serverTimestamp(),
-      })
-    })
-
-    await batch.commit()
-  }
-
-  /**
-   * Get unread notifications for user
-   */
-  static async getUnreadNotifications(userId: string): Promise<any[]> {
-    const snapshot = await db
-      .collection(COLLECTIONS.notifications)
-      .where('userId', '==', userId)
-      .where('read', '==', false)
-      .where('deleted', '==', false)
-      .orderBy('createdAt', 'desc')
-      .limit(50)
-      .get()
-
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-    }))
-  }
-
-  /**
-   * Get recent notifications for user
-   */
-  static async getRecentNotifications(userId: string, limit: number = 20): Promise<any[]> {
-    const snapshot = await db
-      .collection(COLLECTIONS.notifications)
-      .where('userId', '==', userId)
-      .where('deleted', '==', false)
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .get()
-
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate?.() || new Date(),
-      readAt: doc.data().readAt?.toDate?.() || null,
-    }))
-  }
-
-  /**
-   * Send meeting notification
-   */
-  static async notifyMeetingStart(
-    churchId: string,
-    meetingTitle: string,
-    meetUrl: string,
-    userIds: string[]
-  ): Promise<void> {
-    await this.sendNotificationToMany(userIds, churchId, {
-      title: 'Meeting Starting',
-      message: `${meetingTitle} is starting now`,
-      type: 'REMINDER',
-      icon: 'video',
-      actionUrl: meetUrl,
-      metadata: {
-        meetingTitle,
-        meetUrl,
-      },
-    })
-  }
-
-  /**
-   * Send livestream notification
-   */
-  static async notifyLivestreamStart(
-    churchId: string,
-    livestreamTitle: string,
-    streamUrl: string,
-    userIds?: string[]
-  ): Promise<void> {
-    if (userIds && userIds.length > 0) {
-      await this.sendNotificationToMany(userIds, churchId, {
-        title: 'Livestream Starting',
-        message: `${livestreamTitle} is now live`,
-        type: 'INFO',
-        icon: 'broadcast',
-        actionUrl: streamUrl,
-        metadata: {
-          livestreamTitle,
-          streamUrl,
-        },
-      })
-    } else {
-      // Broadcast to all church members
-      await this.broadcastToChurch(churchId, {
-        title: 'Livestream Starting',
-        message: `${livestreamTitle} is now live`,
-        type: 'INFO',
-        icon: 'broadcast',
-        actionUrl: streamUrl,
-        metadata: {
-          livestreamTitle,
-          streamUrl,
-        },
-      })
-    }
-  }
-
-  /**
-   * Send attendance reminder
-   */
-  static async notifyAttendanceReminder(
-    churchId: string,
-    meetingTitle: string,
-    startTime: Date,
-    userIds: string[]
-  ): Promise<void> {
-    const timeUntil = Math.round((startTime.getTime() - Date.now()) / 60000)
-    const timeText = timeUntil < 60 ? `${timeUntil} minutes` : `${Math.round(timeUntil / 60)} hours`
-
-    await this.sendNotificationToMany(userIds, churchId, {
-      title: 'Upcoming Meeting',
-      message: `${meetingTitle} starts in ${timeText}`,
-      type: 'REMINDER',
-      icon: 'calendar',
-      metadata: {
-        meetingTitle,
-        startTime: startTime.toISOString(),
-      },
+    await prisma.notification.updateMany({
+      where: { userId, deleted: false },
+      data: { deleted: true, deletedAt: new Date() },
     })
   }
 }

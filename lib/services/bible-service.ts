@@ -1,6 +1,4 @@
-import { FieldValue } from 'firebase-admin/firestore'
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import { DEFAULT_BIBLE_VERSION, BIBLE_VERSIONS } from '@/lib/bible/config'
 
 const API_BASE_URL = 'https://rest.api.bible/v1'
@@ -65,18 +63,17 @@ async function getPassageCacheDocId(bibleId: string, passageId: string) {
 export class BibleService {
   static async getPassage(bibleId: string, passageId: string): Promise<BiblePassage> {
     const docId = await getPassageCacheDocId(bibleId, passageId)
-    const cacheDoc = await db.collection(COLLECTIONS.biblePassageCache).doc(docId).get()
+    const cached = await prisma.biblePassageCache.findUnique({ where: { id: docId } })
 
-    if (cacheDoc.exists) {
-      const data = cacheDoc.data()!
+    if (cached) {
       return {
-        bibleId: data.bibleId,
-        passageId: data.passageId,
-        reference: data.reference,
-        content: data.content,
-        html: data.html,
-        copyright: data.copyright,
-        fetchedAt: toDate(data.fetchedAt),
+        bibleId: cached.bibleId,
+        passageId: cached.passageId,
+        reference: cached.reference,
+        content: cached.content,
+        html: cached.html ?? undefined,
+        copyright: cached.copyright ?? undefined,
+        fetchedAt: cached.fetchedAt,
       }
     }
 
@@ -94,18 +91,19 @@ export class BibleService {
       throw new Error('Bible API returned no data for the requested passage.')
     }
 
-    const payload = {
-      bibleId,
-      passageId,
-      reference: passageData.reference,
-      content: passageData.content,
-      html: passageData.content,
-      copyright: passageData.copyright,
-      fetchedAt: FieldValue.serverTimestamp(),
-      createdAt: FieldValue.serverTimestamp(),
-    }
-
-    await db.collection(COLLECTIONS.biblePassageCache).doc(docId).set(payload)
+    await prisma.biblePassageCache.upsert({
+      where: { id: docId },
+      update: {},
+      create: {
+        id: docId,
+        bibleId,
+        passageId,
+        reference: passageData.reference,
+        content: passageData.content,
+        html: passageData.content,
+        copyright: passageData.copyright ?? null,
+      },
+    })
 
     return {
       bibleId,

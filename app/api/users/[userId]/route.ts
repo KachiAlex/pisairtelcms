@@ -5,8 +5,7 @@ import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
 import { UserService } from '@/lib/services/user-service'
 import { getCurrentChurch } from '@/lib/church-context'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
 import { DesignationService } from '@/lib/services/designation-service'
 import { canManageUser } from '@/lib/permissions'
@@ -43,13 +42,13 @@ export async function GET(
 
     // Get counts
     const [departmentsCount, groupsCount, badgesCount, prayerRequestsCount, sermonsWatchedCount, givingCount, eventsAttendedCount] = await Promise.all([
-      db.collection(COLLECTIONS.departments).where('members', 'array-contains', userId).count().get(),
-      db.collection(COLLECTIONS.groups).where('members', 'array-contains', userId).count().get(),
-      db.collection(COLLECTIONS.userBadges).where('userId', '==', userId).count().get(),
-      db.collection(COLLECTIONS.prayerRequests).where('userId', '==', userId).count().get(),
-      db.collection(COLLECTIONS.sermonViews).where('userId', '==', userId).count().get(),
-      db.collection(COLLECTIONS.giving).where('userId', '==', userId).count().get(),
-      db.collection(COLLECTIONS.eventAttendances).where('userId', '==', userId).count().get(),
+      prisma.departmentMembership.count({ where: { userId } }),
+      prisma.groupMembership.count({ where: { userId } }),
+      prisma.userBadge.count({ where: { userId } }),
+      prisma.prayerRequest.count({ where: { userId } }),
+      prisma.sermonView.count({ where: { userId } }),
+      prisma.giving.count({ where: { userId } }),
+      prisma.eventAttendance.count({ where: { userId } }),
     ])
 
     // Remove password
@@ -58,13 +57,13 @@ export async function GET(
     return NextResponse.json({
       ...userWithoutPassword,
       _count: {
-        departments: departmentsCount.data().count || 0,
-        groups: groupsCount.data().count || 0,
-        badges: badgesCount.data().count || 0,
-        prayerRequests: prayerRequestsCount.data().count || 0,
-        sermonsWatched: sermonsWatchedCount.data().count || 0,
-        giving: givingCount.data().count || 0,
-        eventsAttended: eventsAttendedCount.data().count || 0,
+        departments: departmentsCount,
+        groups: groupsCount,
+        badges: badgesCount,
+        prayerRequests: prayerRequestsCount,
+        sermonsWatched: sermonsWatchedCount,
+        giving: givingCount,
+        eventsAttended: eventsAttendedCount,
       },
     })
   } catch (error) {
@@ -121,6 +120,9 @@ export async function PUT(
       customWagePayFrequency,
       designationId,
       isSuspended,
+      employmentStatus,
+      parentId,
+      spouseId,
     } = body
 
     const updateData: any = {}
@@ -136,6 +138,7 @@ export async function PUT(
     if (country !== undefined) updateData.country = country
     if (spiritualMaturity !== undefined) updateData.spiritualMaturity = spiritualMaturity
     if (profileImage !== undefined) updateData.profileImage = profileImage
+    if (employmentStatus !== undefined) updateData.employmentStatus = employmentStatus
 
     // Only privileged users can change roles, and must respect hierarchy
     const privilegedRoles = ['ADMIN', 'SUPER_ADMIN', 'PASTOR', 'BRANCH_ADMIN']
@@ -210,12 +213,13 @@ export async function PUT(
         if (!levelId) {
           return NextResponse.json({ error: 'Staff level is required for staff members' }, { status: 400 })
         }
-        const staffLevel = await db.collection(COLLECTIONS.staffLevels).doc(levelId).get()
-        if (!staffLevel.exists || staffLevel.data()?.churchId !== church.id) {
+        const { StaffLevelService } = await import('@/lib/services/staff-level-service')
+        const staffLevel = await StaffLevelService.get(church.id, levelId)
+        if (!staffLevel) {
           return NextResponse.json({ error: 'Invalid staff level' }, { status: 400 })
         }
         updateData.staffLevelId = levelId
-        updateData.staffLevelName = staffLevel.data()?.name
+        updateData.staffLevelName = staffLevel.name
 
         if (customWage !== undefined || customWageAmount !== undefined) {
           try {
@@ -263,6 +267,72 @@ export async function PUT(
       updateData.isSuspended = isSuspended
     }
 
+    // Family relationships
+    let previousSpouseId: string | null = null
+    if (parentId !== undefined || spouseId !== undefined) {
+      const context = await resolveChurchContext()
+      if ('error' in context) {
+        return context.error
+      }
+      previousSpouseId = context.targetUser.spouseId ?? null
+
+      const resolveRelative = async (relativeId: string | null, label: string) => {
+        if (relativeId === null || relativeId === '') return null
+        if (relativeId === userId) {
+          throw new Error(`A user cannot be their own ${label}`)
+        }
+        const relative = await UserService.findById(relativeId)
+        if (!relative || relative.churchId !== context.church.id) {
+          throw new Error(`Invalid ${label}: user not found in this church`)
+        }
+        return relativeId
+      }
+
+      if (parentId !== undefined) {
+        try {
+          const resolvedParentId = await resolveRelative(parentId, 'parent')
+          if (resolvedParentId) {
+            // Prevent circular ancestry
+            let cursor: string | null | undefined = resolvedParentId
+            let hops = 0
+            while (cursor && hops < 25) {
+              if (cursor === userId) {
+                return NextResponse.json(
+                  { error: 'Cannot set parent: this would create a circular family relationship' },
+                  { status: 400 }
+                )
+              }
+              const ancestor: Awaited<ReturnType<typeof UserService.findById>> =
+                await UserService.findById(cursor)
+              cursor = ancestor?.parentId ?? null
+              hops += 1
+            }
+          }
+          updateData.parentId = resolvedParentId
+        } catch (err: any) {
+          return NextResponse.json({ error: err.message }, { status: 400 })
+        }
+      }
+
+      if (spouseId !== undefined) {
+        try {
+          const resolvedSpouseId = await resolveRelative(spouseId, 'spouse')
+          if (resolvedSpouseId) {
+            const spouse = await UserService.findById(resolvedSpouseId)
+            if (spouse?.spouseId && spouse.spouseId !== userId) {
+              return NextResponse.json(
+                { error: 'That user is already linked to a different spouse' },
+                { status: 400 }
+              )
+            }
+          }
+          updateData.spouseId = resolvedSpouseId
+        } catch (err: any) {
+          return NextResponse.json({ error: err.message }, { status: 400 })
+        }
+      }
+    }
+
     // Handle password change
     if (password) {
       if (userId !== currentUserId) {
@@ -275,6 +345,28 @@ export async function PUT(
     }
 
     const updatedUser = await UserService.update(userId, updateData)
+
+    // Maintain reciprocal spouse links (spouseId is unique/1:1)
+    if (spouseId !== undefined) {
+      const newSpouseId = (updateData.spouseId as string | null) ?? null
+      const oldSpouseId = previousSpouseId
+      try {
+        if (oldSpouseId && oldSpouseId !== newSpouseId) {
+          const oldSpouse = await UserService.findById(oldSpouseId)
+          if (oldSpouse?.spouseId === userId) {
+            await UserService.update(oldSpouseId, { spouseId: null })
+          }
+        }
+        if (newSpouseId) {
+          const newSpouse = await UserService.findById(newSpouseId)
+          if (newSpouse && newSpouse.spouseId !== userId) {
+            await UserService.update(newSpouseId, { spouseId: userId })
+          }
+        }
+      } catch (err) {
+        console.error('Failed to maintain reciprocal spouse link:', err)
+      }
+    }
 
     // Remove password from response
     const { password: _, ...userWithoutPassword } = updatedUser
@@ -331,7 +423,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Cannot delete super admin accounts' }, { status: 403 })
     }
 
-    await UserService.delete(userId)
+    await UserService.deleteWithRelations(userId)
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Error deleting user:', error)

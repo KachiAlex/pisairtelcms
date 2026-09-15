@@ -46,6 +46,53 @@ const OVERRIDES = {
   'children_check_ins': 'childrenCheckIn',
   'group_members': 'groupMembership',
   'group_memberships': 'groupMembership',
+  'password_resets': 'passwordResetToken',
+  'unit_settings': 'unitSettings',
+  'subscription_plan_overrides': 'subscriptionPlanOverride',
+  // singular('digitalCourses') -> 'digitalCours' via the 'ses' rule; map explicitly
+  'digital_courses': 'digitalCourse',
+  'accounting_expenses': 'accountingExpense',
+  'church_designations': 'designation',
+  'ai_coaching_sessions': 'aICoachingSession',
+  // stray camelCase duplicate of subscription_plans
+  'subscriptionPlans': 'subscriptionPlan',
+}
+
+// Legacy collections not listed in firestore-collections.ts (renamed/typo'd
+// names left behind in Firestore)
+const EXTRA_COLLECTIONS = ['subscriptionPlans']
+
+// Models whose Prisma PK is not "id" — upsert key and record PK field differ.
+const PK_FIELD = {
+  subscriptionPromo: 'code',
+}
+
+// Post-processors run after buildRecord to fix field-name mismatches.
+const POST_PROCESS = {
+  // OAuth state docs are keyed by the state value itself
+  churchGoogleOauthState: (record, docId) => {
+    record.state = record.state || docId
+  },
+  // Token invites carry the legacy doc id as the token when no token field exists
+  unitInvite: (record, docId) => {
+    if (!record.token) record.token = docId
+  },
+  // Legacy promo docs are keyed by code
+  subscriptionPromo: (record, docId) => {
+    record.code = record.code || docId
+  },
+  // Legacy prayer interactions reference the request as requestId
+  prayerInteraction: (record) => {
+    if (!record.prayerRequestId && record.firestoreData?.requestId) {
+      record.prayerRequestId = record.firestoreData.requestId
+    }
+  },
+  // Some legacy role docs stored millisecond timestamps in `order` (int4 overflow)
+  churchRole: (record) => {
+    if (typeof record.order === 'number' && record.order > 2147483646) {
+      record.order = 99
+    }
+  },
 }
 
 const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
@@ -66,6 +113,9 @@ const prisma = new PrismaClient()
 
 const collectionsFile = fs.readFileSync('./lib/firestore-collections.ts', 'utf8')
 const collections = [...new Set([...collectionsFile.matchAll(/:\s*['"]([^'"]+)['"]/g)].map((m) => m[1]))]
+for (const extra of EXTRA_COLLECTIONS) {
+  if (!collections.includes(extra)) collections.push(extra)
+}
 
 const prismaModelKeys = Object.keys(prisma).filter(
   (k) =>
@@ -192,7 +242,18 @@ async function migrateCollection(collection, modelKey) {
     return 0
   }
 
-  const records = snapshot.docs.map((doc) => buildRecord(doc.id, doc.data(), dmmfModel, dmmf))
+  const pkField = PK_FIELD[modelKey] || 'id'
+  const postProcess = POST_PROCESS[modelKey]
+
+  const records = snapshot.docs.map((doc) => {
+    const record = buildRecord(doc.id, doc.data(), dmmfModel, dmmf)
+    if (postProcess) postProcess(record, doc.id)
+    if (pkField !== 'id') {
+      record[pkField] = record[pkField] || doc.id
+      delete record.id
+    }
+    return record
+  })
 
   let success = 0
   for (const r of records) {
@@ -200,19 +261,78 @@ async function migrateCollection(collection, modelKey) {
       await prisma.$transaction([
         prisma.$executeRaw`SET LOCAL session_replication_role = 'replica'`,
         model.upsert({
-          where: { id: r.id },
+          where: { [pkField]: r[pkField] },
           update: r,
           create: r,
         }),
       ])
       success++
     } catch (err) {
-      console.error(`    ERROR upserting ${modelKey} ${r.id}:`, err.message.split('\n')[0])
+      console.error(`    ERROR upserting ${modelKey} ${r[pkField]}:`, err.message.split('\n')[0])
     }
   }
 
   console.log(`  ${collection} -> ${modelKey}: ${success}/${records.length} docs`)
   return success
+}
+
+// Firestore subcollections: parent collection -> subcollection -> model + id derivation.
+const SUBCOLLECTIONS = [
+  { parent: 'posts', sub: 'likes', model: 'postLike', makeId: (p, d) => `${p}_${d}` },
+  { parent: 'posts', sub: 'shares', model: 'postShare', makeId: (p, d) => `${p}_${d}` },
+  { parent: 'comments', sub: 'likes', model: 'commentLike', makeId: (p, d) => `${p}_${d}` },
+]
+
+async function migrateSubcollections() {
+  for (const spec of SUBCOLLECTIONS) {
+    const model = prisma[spec.model]
+    if (!model) continue
+    const parentSnap = await firestore.collection(spec.parent).select().get()
+    let success = 0, total = 0
+    for (const parentDoc of parentSnap.docs) {
+      const subSnap = await parentDoc.ref.collection(spec.sub).get()
+      for (const doc of subSnap.docs) {
+        total++
+        const data = doc.data()
+        let record
+        if (spec.model === 'postShare') {
+          const post = await prisma.post.findUnique({ where: { id: parentDoc.id }, select: { churchId: true } })
+          record = {
+            id: spec.makeId(parentDoc.id, doc.id),
+            postId: parentDoc.id,
+            churchId: data.churchId || post?.churchId || '',
+            sharedByUserId: data.sharedByUserId || data.userId || doc.id,
+            unitIds: Array.isArray(data.unitIds) ? data.unitIds : [],
+            note: data.note || null,
+            createdAt: toDate(data.createdAt) || new Date(),
+            firestoreData: toPlainJson(data),
+          }
+        } else {
+          record = {
+            id: spec.makeId(parentDoc.id, doc.id),
+            userId: data.userId || doc.id,
+            ...(spec.parent === 'posts' ? { postId: parentDoc.id } : { commentId: parentDoc.id }),
+            createdAt: toDate(data.createdAt) || new Date(),
+            firestoreData: toPlainJson(data),
+          }
+        }
+        try {
+          await prisma.$transaction([
+            prisma.$executeRaw`SET LOCAL session_replication_role = 'replica'`,
+            model.upsert({
+              where: { id: record.id },
+              update: record,
+              create: record,
+            }),
+          ])
+          success++
+        } catch (err) {
+          console.error(`    ERROR upserting ${spec.model} ${record.id}:`, err.message.split('\n')[0])
+        }
+      }
+    }
+    console.log(`  ${spec.parent}/*/${spec.sub} -> ${spec.model}: ${success}/${total} docs`)
+  }
 }
 
 async function main() {
@@ -229,6 +349,7 @@ async function main() {
       console.error(`  ERROR migrating ${collection} -> ${modelKey}:`, err.message)
     }
   }
+  await migrateSubcollections()
   console.log('\nSummary:', counts)
   await prisma.$disconnect()
 }

@@ -612,7 +612,7 @@ export default function LicenseManager({
                         )}
                         {isProcessing && (
                           <span className="block text-xs text-purple-600 font-medium">
-                            Launching checkoutâ€¦
+                            Launching checkout...
                           </span>
                         )}
                       </div>

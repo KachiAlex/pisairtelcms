@@ -1,6 +1,5 @@
-import { FieldValue } from 'firebase-admin/firestore'
-import { db, toDate } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 
 export type DigitalCourseAccess = 'open' | 'request' | 'invite'
 export type DigitalCourseStatus = 'draft' | 'published' | 'archived'
@@ -294,22 +293,8 @@ export interface DigitalExamAttemptInput {
   userId: string
 }
 
-const serverTimestamps = () => ({
-  createdAt: FieldValue.serverTimestamp(),
-  updatedAt: FieldValue.serverTimestamp(),
-})
-
 const omitUndefined = <T extends Record<string, any>>(data: T) =>
   Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined))
-
-function buildDocWithTimestamps<T extends Record<string, any>>(data: T, userId?: string) {
-  return {
-    ...data,
-    updatedBy: userId ?? data.updatedBy ?? data.createdBy,
-    createdAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
-  }
-}
 
 const DEFAULT_CURRENCY = 'NGN'
 
@@ -326,55 +311,57 @@ function normalizePricing(pricing?: DigitalCoursePricing | null): DigitalCourseP
   }
 }
 
-export class DigitalCourseEnrollmentService {
-  static collection() {
-    return db.collection(COLLECTIONS.digitalCourseEnrollments)
+function normalizeRetakePolicy(retakePolicy?: DigitalCourseExamInput['retakePolicy'] | null) {
+  if (!retakePolicy) return null
+  return {
+    maxAttempts: typeof retakePolicy.maxAttempts === 'number' ? retakePolicy.maxAttempts : null,
+    cooldownHours: typeof retakePolicy.cooldownHours === 'number' ? retakePolicy.cooldownHours : null,
   }
+}
 
+export class DigitalCourseEnrollmentService {
   static async get(enrollmentId: string): Promise<DigitalCourseEnrollment | null> {
-    const doc = await this.collection().doc(enrollmentId).get()
-    if (!doc.exists) return null
-    return this.fromDoc(doc.id, doc.data()!)
+    const record = await prisma.digitalCourseEnrollment.findUnique({ where: { id: enrollmentId } })
+    return record ? this.fromRecord(record) : null
   }
 
   static async enroll(input: DigitalCourseEnrollmentInput): Promise<DigitalCourseEnrollment> {
-    const docRef = this.collection().doc()
-    const payload = {
-      courseId: input.courseId,
-      churchId: input.churchId,
-      userId: input.userId,
-      status: 'active' as DigitalCourseEnrollmentStatus,
-      progressPercent: 0,
-      moduleProgress: {},
-      certificateUrl: null,
-      certificateStoragePath: null,
-      certificateIssuedAt: null,
-      ...serverTimestamps(),
-    }
-    await docRef.set(payload)
-    const created = await docRef.get()
-    return this.fromDoc(created.id, created.data()!)
+    const record = await prisma.digitalCourseEnrollment.upsert({
+      where: { courseId_userId: { courseId: input.courseId, userId: input.userId } },
+      create: {
+        courseId: input.courseId,
+        churchId: input.churchId,
+        userId: input.userId,
+        status: 'active',
+        progressPercent: 0,
+        moduleProgress: {},
+      },
+      update: {},
+    })
+    return this.fromRecord(record)
   }
 
   static async listByCourse(courseId: string): Promise<DigitalCourseEnrollment[]> {
-    const snapshot = await this.collection().where('courseId', '==', courseId).get()
-    return snapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
+    const records = await prisma.digitalCourseEnrollment.findMany({
+      where: { courseId },
+      orderBy: { createdAt: 'desc' },
+    })
+    return records.map((r) => this.fromRecord(r))
   }
 
   static async listByUser(userId: string): Promise<DigitalCourseEnrollment[]> {
-    const snapshot = await this.collection().where('userId', '==', userId).get()
-    return snapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
+    const records = await prisma.digitalCourseEnrollment.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    })
+    return records.map((r) => this.fromRecord(r))
   }
 
   static async findByUserAndCourse(userId: string, courseId: string): Promise<DigitalCourseEnrollment | null> {
-    const snapshot = await this.collection()
-      .where('userId', '==', userId)
-      .where('courseId', '==', courseId)
-      .limit(1)
-      .get()
-    if (snapshot.empty) return null
-    const doc = snapshot.docs[0]
-    return this.fromDoc(doc.id, doc.data()!)
+    const record = await prisma.digitalCourseEnrollment.findUnique({
+      where: { courseId_userId: { courseId, userId } },
+    })
+    return record ? this.fromRecord(record) : null
   }
 
   static async updateProgress(
@@ -389,13 +376,10 @@ export class DigitalCourseEnrollmentService {
       issuedAt?: Date | null
     },
   ): Promise<DigitalCourseEnrollment | null> {
-    const docRef = this.collection().doc(enrollmentId)
-    const existing = await docRef.get()
-    if (!existing.exists) return null
+    const existing = await prisma.digitalCourseEnrollment.findUnique({ where: { id: enrollmentId } })
+    if (!existing) return null
 
-    const updatePayload: Record<string, any> = {
-      updatedAt: FieldValue.serverTimestamp(),
-    }
+    const updatePayload: Prisma.DigitalCourseEnrollmentUpdateInput = {}
 
     if (typeof progressPercent === 'number') updatePayload.progressPercent = progressPercent
     if (moduleProgress) updatePayload.moduleProgress = moduleProgress
@@ -407,342 +391,262 @@ export class DigitalCourseEnrollmentService {
       if ('issuedAt' in certificate) updatePayload.certificateIssuedAt = certificate.issuedAt ?? null
     }
 
-    await docRef.update(updatePayload)
-    const updated = await docRef.get()
-    return this.fromDoc(updated.id, updated.data()!)
+    const record = await prisma.digitalCourseEnrollment.update({
+      where: { id: enrollmentId },
+      data: updatePayload,
+    })
+    return this.fromRecord(record)
   }
 
-  private static fromDoc(id: string, data: Record<string, any>): DigitalCourseEnrollment {
+  private static fromRecord(record: any): DigitalCourseEnrollment {
     return {
-      id,
-      courseId: data.courseId,
-      churchId: data.churchId,
-      userId: data.userId,
-      status: data.status,
-      progressPercent: data.progressPercent ?? 0,
-      moduleProgress: data.moduleProgress || {},
-      badgeIssuedAt: data.badgeIssuedAt ? toDate(data.badgeIssuedAt) : undefined,
-      certificateUrl: data.certificateUrl || undefined,
-      certificateStoragePath: data.certificateStoragePath || undefined,
-      certificateIssuedAt: data.certificateIssuedAt ? toDate(data.certificateIssuedAt) : undefined,
-      createdAt: data.createdAt ? toDate(data.createdAt) : new Date(),
-      updatedAt: data.updatedAt ? toDate(data.updatedAt) : new Date(),
+      id: record.id,
+      courseId: record.courseId,
+      churchId: record.churchId,
+      userId: record.userId,
+      status: record.status,
+      progressPercent: record.progressPercent ?? 0,
+      moduleProgress: (record.moduleProgress as Record<string, number>) || {},
+      badgeIssuedAt: record.badgeIssuedAt ?? undefined,
+      certificateUrl: record.certificateUrl || undefined,
+      certificateStoragePath: record.certificateStoragePath || undefined,
+      certificateIssuedAt: record.certificateIssuedAt ?? undefined,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     }
   }
 }
 
 export class DigitalCourseExamService {
-  static collection() {
-    return db.collection(COLLECTIONS.digitalCourseExams)
-  }
-
   static async listByCourse(courseId: string): Promise<DigitalCourseExam[]> {
-    try {
-      const snapshot = await this.collection().where('courseId', '==', courseId).orderBy('createdAt', 'desc').get()
-      return snapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
-    } catch (error: any) {
-      const needsIndex =
-        error?.code === 9 ||
-        error?.message?.includes('FAILED_PRECONDITION') ||
-        error?.message?.includes('requires an index')
-      if (!needsIndex) throw error
-      const fallbackSnapshot = await this.collection().where('courseId', '==', courseId).get()
-      const exams = fallbackSnapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
-      return exams.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    }
+    const records = await prisma.digitalCourseExam.findMany({
+      where: { courseId },
+      orderBy: { createdAt: 'desc' },
+    })
+    return records.map((r) => this.fromRecord(r))
   }
 
   static async listBySection(sectionId: string): Promise<DigitalCourseExam[]> {
-    try {
-      const snapshot = await this.collection().where('sectionId', '==', sectionId).orderBy('createdAt', 'desc').get()
-      return snapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
-    } catch (error: any) {
-      const needsIndex =
-        error?.code === 9 ||
-        error?.message?.includes('FAILED_PRECONDITION') ||
-        error?.message?.includes('requires an index')
-      if (!needsIndex) throw error
-      const fallbackSnapshot = await this.collection().where('sectionId', '==', sectionId).get()
-      const exams = fallbackSnapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
-      return exams.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    }
+    const records = await prisma.digitalCourseExam.findMany({
+      where: { sectionId },
+      orderBy: { createdAt: 'desc' },
+    })
+    return records.map((r) => this.fromRecord(r))
   }
 
   static async get(examId: string): Promise<DigitalCourseExam | null> {
-    const doc = await this.collection().doc(examId).get()
-    if (!doc.exists) return null
-    return this.fromDoc(doc.id, doc.data()!)
+    const record = await prisma.digitalCourseExam.findUnique({ where: { id: examId } })
+    return record ? this.fromRecord(record) : null
   }
 
   static async create(input: DigitalCourseExamInput): Promise<DigitalCourseExam> {
-    const docRef = this.collection().doc()
-    const payload = {
-      courseId: input.courseId,
-      sectionId: input.sectionId,
-      moduleId: input.moduleId ?? null,
-      title: input.title,
-      description: input.description ?? '',
-      timeLimitMinutes: input.timeLimitMinutes ?? null,
-      questionCount: 0,
-      status: input.status ?? 'draft',
-      uploadMetadata: input.uploadMetadata ?? null,
-      retakePolicy: input.retakePolicy
-        ? {
-            maxAttempts:
-              typeof input.retakePolicy.maxAttempts === 'number'
-                ? input.retakePolicy.maxAttempts
-                : null,
-            cooldownHours:
-              typeof input.retakePolicy.cooldownHours === 'number'
-                ? input.retakePolicy.cooldownHours
-                : null,
-          }
-        : null,
-      createdBy: input.createdBy,
-      updatedBy: input.updatedBy ?? input.createdBy,
-      ...serverTimestamps(),
-    }
-
-    await docRef.set(payload)
-    const created = await docRef.get()
-    return this.fromDoc(created.id, created.data()!)
+    const record = await prisma.digitalCourseExam.create({
+      data: {
+        courseId: input.courseId,
+        sectionId: input.sectionId,
+        moduleId: input.moduleId ?? null,
+        title: input.title,
+        description: input.description ?? '',
+        timeLimitMinutes: input.timeLimitMinutes ?? null,
+        questionCount: 0,
+        status: input.status ?? 'draft',
+        uploadMetadata: (input.uploadMetadata ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+        retakePolicy: normalizeRetakePolicy(input.retakePolicy) as Prisma.InputJsonValue,
+        createdBy: input.createdBy,
+        updatedBy: input.updatedBy ?? input.createdBy,
+      },
+    })
+    return this.fromRecord(record)
   }
 
   static async update(
     examId: string,
     data: Partial<Omit<DigitalCourseExamInput, 'courseId'>>,
   ): Promise<DigitalCourseExam | null> {
-    const docRef = this.collection().doc(examId)
-    const existing = await docRef.get()
-    if (!existing.exists) return null
+    const existing = await prisma.digitalCourseExam.findUnique({ where: { id: examId } })
+    if (!existing) return null
 
-    await docRef.update({
-      ...omitUndefined({
-        ...data,
-        retakePolicy: data.retakePolicy
-          ? {
-              maxAttempts:
-                typeof data.retakePolicy.maxAttempts === 'number'
-                  ? data.retakePolicy.maxAttempts
-                  : null,
-              cooldownHours:
-                typeof data.retakePolicy.cooldownHours === 'number'
-                  ? data.retakePolicy.cooldownHours
-                  : null,
-            }
-          : data.retakePolicy === null
-            ? null
-            : undefined,
-      }),
-      updatedBy: data.updatedBy ?? existing.data()?.updatedBy,
-      updatedAt: FieldValue.serverTimestamp(),
+    const { retakePolicy, ...rest } = data
+    const record = await prisma.digitalCourseExam.update({
+      where: { id: examId },
+      data: {
+        ...(omitUndefined(rest) as Prisma.DigitalCourseExamUpdateInput),
+        ...(retakePolicy !== undefined
+          ? { retakePolicy: normalizeRetakePolicy(retakePolicy) as Prisma.InputJsonValue }
+          : {}),
+        updatedBy: data.updatedBy ?? existing.updatedBy,
+      },
     })
-
-    const updated = await docRef.get()
-    return this.fromDoc(updated.id, updated.data()!)
+    return this.fromRecord(record)
   }
 
   static async delete(examId: string): Promise<void> {
-    await this.collection().doc(examId).delete()
+    await prisma.digitalCourseExam.delete({ where: { id: examId } })
   }
 
   static async incrementQuestionCount(examId: string, delta: number) {
-    await this.collection().doc(examId).update({
-      questionCount: FieldValue.increment(delta),
-      updatedAt: FieldValue.serverTimestamp(),
+    await prisma.digitalCourseExam.update({
+      where: { id: examId },
+      data: { questionCount: { increment: delta } },
     })
   }
 
-  private static fromDoc(id: string, data: Record<string, any>): DigitalCourseExam {
+  private static fromRecord(record: any): DigitalCourseExam {
     return {
-      id,
-      courseId: data.courseId,
-      sectionId: data.sectionId,
-      moduleId: data.moduleId || undefined,
-      title: data.title,
-      description: data.description || undefined,
-      timeLimitMinutes: data.timeLimitMinutes ?? undefined,
-      questionCount: data.questionCount || 0,
-      status: data.status ?? 'draft',
-      uploadMetadata: data.uploadMetadata || undefined,
-      retakePolicy: data.retakePolicy
-        ? {
-            maxAttempts:
-              typeof data.retakePolicy.maxAttempts === 'number'
-                ? data.retakePolicy.maxAttempts
-                : null,
-            cooldownHours:
-              typeof data.retakePolicy.cooldownHours === 'number'
-                ? data.retakePolicy.cooldownHours
-                : null,
-          }
-        : undefined,
-      createdBy: data.createdBy,
-      updatedBy: data.updatedBy,
-      createdAt: data.createdAt ? toDate(data.createdAt) : new Date(),
-      updatedAt: data.updatedAt ? toDate(data.updatedAt) : new Date(),
+      id: record.id,
+      courseId: record.courseId,
+      sectionId: record.sectionId,
+      moduleId: record.moduleId || undefined,
+      title: record.title,
+      description: record.description || undefined,
+      timeLimitMinutes: record.timeLimitMinutes ?? undefined,
+      questionCount: record.questionCount || 0,
+      status: record.status ?? 'draft',
+      uploadMetadata: (record.uploadMetadata as DigitalCourseExam['uploadMetadata']) || undefined,
+      retakePolicy: (record.retakePolicy as DigitalCourseExam['retakePolicy']) || undefined,
+      createdBy: record.createdBy,
+      updatedBy: record.updatedBy,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     }
   }
 }
 
 export class DigitalExamQuestionService {
-  static collection() {
-    return db.collection(COLLECTIONS.digitalExamQuestions)
-  }
-
   static async get(questionId: string): Promise<DigitalExamQuestion | null> {
-    const doc = await this.collection().doc(questionId).get()
-    if (!doc.exists) return null
-    return this.fromDoc(doc.id, doc.data()!)
+    const record = await prisma.digitalExamQuestion.findUnique({ where: { id: questionId } })
+    return record ? this.fromRecord(record) : null
   }
 
   static async listByExam(examId: string): Promise<DigitalExamQuestion[]> {
-    const snapshot = await this.collection().where('examId', '==', examId).get()
-    return snapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
+    const records = await prisma.digitalExamQuestion.findMany({
+      where: { examId },
+      orderBy: { createdAt: 'asc' },
+    })
+    return records.map((r) => this.fromRecord(r))
   }
 
   static async create(input: DigitalExamQuestionInput): Promise<DigitalExamQuestion> {
-    const docRef = this.collection().doc()
-    const payload = {
-      examId: input.examId,
-      courseId: input.courseId,
-      moduleId: input.moduleId ?? null,
-      question: input.question,
-      options: input.options,
-      correctOption: input.correctOption,
-      explanation: input.explanation ?? '',
-      weight: input.weight ?? 1,
-      durationSeconds: input.durationSeconds ?? null,
-      ...serverTimestamps(),
-    }
-
-    await docRef.set(payload)
-    await DigitalCourseExamService.incrementQuestionCount(input.examId, 1)
-    const created = await docRef.get()
-    return this.fromDoc(created.id, created.data()!)
+    const [record] = await prisma.$transaction([
+      prisma.digitalExamQuestion.create({
+        data: {
+          examId: input.examId,
+          courseId: input.courseId,
+          moduleId: input.moduleId ?? null,
+          question: input.question,
+          options: input.options,
+          correctOption: input.correctOption,
+          explanation: input.explanation ?? '',
+          weight: input.weight ?? 1,
+          durationSeconds: input.durationSeconds ?? null,
+        },
+      }),
+      prisma.digitalCourseExam.update({
+        where: { id: input.examId },
+        data: { questionCount: { increment: 1 } },
+      }),
+    ])
+    return this.fromRecord(record)
   }
 
   static async update(
     questionId: string,
     data: Partial<Omit<DigitalExamQuestionInput, 'examId' | 'courseId'>>,
   ): Promise<DigitalExamQuestion | null> {
-    const docRef = this.collection().doc(questionId)
-    const existing = await docRef.get()
-    if (!existing.exists) return null
+    const existing = await prisma.digitalExamQuestion.findUnique({ where: { id: questionId } })
+    if (!existing) return null
 
-    await docRef.update({
-      ...omitUndefined(data),
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.digitalExamQuestion.update({
+      where: { id: questionId },
+      data: omitUndefined(data) as Prisma.DigitalExamQuestionUpdateInput,
     })
-
-    const updated = await docRef.get()
-    return this.fromDoc(updated.id, updated.data()!)
+    return this.fromRecord(record)
   }
 
   static async delete(questionId: string): Promise<boolean> {
-    const docRef = this.collection().doc(questionId)
-    const existing = await docRef.get()
-    if (!existing.exists) return false
+    const existing = await prisma.digitalExamQuestion.findUnique({ where: { id: questionId } })
+    if (!existing) return false
 
-    const data = existing.data()!
-    await docRef.delete()
-    if (data.examId) {
-      await DigitalCourseExamService.incrementQuestionCount(data.examId as string, -1)
-    }
+    await prisma.$transaction([
+      prisma.digitalExamQuestion.delete({ where: { id: questionId } }),
+      prisma.digitalCourseExam.update({
+        where: { id: existing.examId },
+        data: { questionCount: { decrement: 1 } },
+      }),
+    ])
     return true
   }
 
-  private static fromDoc(id: string, data: Record<string, any>): DigitalExamQuestion {
+  private static fromRecord(record: any): DigitalExamQuestion {
     return {
-      id,
-      examId: data.examId,
-      courseId: data.courseId,
-      moduleId: data.moduleId || undefined,
-      question: data.question,
-      options: data.options || [],
-      correctOption: data.correctOption,
-      explanation: data.explanation || undefined,
-      weight: data.weight ?? 1,
-      durationSeconds: data.durationSeconds ?? undefined,
-      createdAt: data.createdAt ? toDate(data.createdAt) : new Date(),
-      updatedAt: data.updatedAt ? toDate(data.updatedAt) : new Date(),
+      id: record.id,
+      examId: record.examId,
+      courseId: record.courseId,
+      moduleId: record.moduleId || undefined,
+      question: record.question,
+      options: record.options || [],
+      correctOption: record.correctOption,
+      explanation: record.explanation || undefined,
+      weight: record.weight ?? 1,
+      durationSeconds: record.durationSeconds ?? undefined,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     }
   }
 }
 
 export class DigitalExamAttemptService {
-  static collection() {
-    return db.collection(COLLECTIONS.digitalExamAttempts)
-  }
-
   static async get(attemptId: string): Promise<DigitalExamAttempt | null> {
-    const doc = await this.collection().doc(attemptId).get()
-    if (!doc.exists) return null
-    return this.fromDoc(doc.id, doc.data()!)
+    const record = await prisma.digitalExamAttempt.findUnique({ where: { id: attemptId } })
+    return record ? this.fromRecord(record) : null
   }
 
   static async listByExam(examId: string): Promise<DigitalExamAttempt[]> {
-    try {
-      const snapshot = await this.collection().where('examId', '==', examId).orderBy('createdAt', 'desc').get()
-      return snapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
-    } catch (error: any) {
-      const needsIndex =
-        error?.code === 9 ||
-        error?.message?.includes('FAILED_PRECONDITION') ||
-        error?.message?.includes('requires an index')
-      if (!needsIndex) throw error
-      const fallbackSnapshot = await this.collection().where('examId', '==', examId).get()
-      const attempts = fallbackSnapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
-      return attempts.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    }
+    const records = await prisma.digitalExamAttempt.findMany({
+      where: { examId },
+      orderBy: { createdAt: 'desc' },
+    })
+    return records.map((r) => this.fromRecord(r))
   }
 
   static async listByUser(userId: string): Promise<DigitalExamAttempt[]> {
-    try {
-      const snapshot = await this.collection().where('userId', '==', userId).orderBy('createdAt', 'desc').get()
-      return snapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
-    } catch (error: any) {
-      const needsIndex =
-        error?.code === 9 ||
-        error?.message?.includes('FAILED_PRECONDITION') ||
-        error?.message?.includes('requires an index')
-      if (!needsIndex) throw error
-      const fallbackSnapshot = await this.collection().where('userId', '==', userId).get()
-      const attempts = fallbackSnapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
-      return attempts.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    }
+    const records = await prisma.digitalExamAttempt.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    })
+    return records.map((r) => this.fromRecord(r))
+  }
+
+  static async listByExams(examIds: string[]): Promise<DigitalExamAttempt[]> {
+    if (examIds.length === 0) return []
+    const records = await prisma.digitalExamAttempt.findMany({
+      where: { examId: { in: examIds } },
+      orderBy: { createdAt: 'desc' },
+    })
+    return records.map((r) => this.fromRecord(r))
   }
 
   static async start(input: DigitalExamAttemptInput): Promise<DigitalExamAttempt> {
-    const docRef = this.collection().doc()
-    const payload = {
-      examId: input.examId,
-      courseId: input.courseId,
-      userId: input.userId,
-      status: 'in_progress' as DigitalExamAttemptStatus,
-      score: null,
-      totalQuestions: null,
-      startedAt: FieldValue.serverTimestamp(),
-      submittedAt: null,
-      responses: [],
-      ...serverTimestamps(),
-    }
-    await docRef.set(payload)
-    const created = await docRef.get()
-    return this.fromDoc(created.id, created.data()!)
+    const record = await prisma.digitalExamAttempt.create({
+      data: {
+        examId: input.examId,
+        courseId: input.courseId,
+        userId: input.userId,
+        status: 'in_progress',
+        responses: [],
+      },
+    })
+    return this.fromRecord(record)
   }
 
   static async submit(
     attemptId: string,
     responses: Array<{ questionId: string; answerIndex: number }>,
   ): Promise<DigitalExamAttempt | null> {
-    const docRef = this.collection().doc(attemptId)
-    const existing = await docRef.get()
-    if (!existing.exists) return null
+    const existing = await prisma.digitalExamAttempt.findUnique({ where: { id: attemptId } })
+    if (!existing) return null
 
-    const data = existing.data()!
-    const examId = data.examId as string
-    const questions = await DigitalExamQuestionService.listByExam(examId)
+    const questions = await DigitalExamQuestionService.listByExam(existing.examId)
 
     const gradedResponses = responses.map((response) => {
       const question = questions.find((q) => q.id === response.questionId)
@@ -758,447 +662,355 @@ export class DigitalExamAttemptService {
     const correctCount = gradedResponses.filter((r) => r.correct).length
     const score = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0
 
-    await docRef.update({
-      status: 'submitted',
-      score,
-      totalQuestions,
-      responses: gradedResponses,
-      submittedAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.digitalExamAttempt.update({
+      where: { id: attemptId },
+      data: {
+        status: 'submitted',
+        score,
+        totalQuestions,
+        responses: gradedResponses,
+        submittedAt: new Date(),
+      },
     })
-
-    const updated = await docRef.get()
-    return this.fromDoc(updated.id, updated.data()!)
+    return this.fromRecord(record)
   }
 
-  private static fromDoc(id: string, data: Record<string, any>): DigitalExamAttempt {
+  private static fromRecord(record: any): DigitalExamAttempt {
     return {
-      id,
-      examId: data.examId,
-      courseId: data.courseId,
-      userId: data.userId,
-      status: data.status,
-      score: typeof data.score === 'number' ? data.score : undefined,
-      totalQuestions: typeof data.totalQuestions === 'number' ? data.totalQuestions : undefined,
-      startedAt: data.startedAt ? toDate(data.startedAt) : new Date(),
-      submittedAt: data.submittedAt ? toDate(data.submittedAt) : undefined,
-      responses: data.responses || [],
-      createdAt: data.createdAt ? toDate(data.createdAt) : new Date(),
-      updatedAt: data.updatedAt ? toDate(data.updatedAt) : new Date(),
+      id: record.id,
+      examId: record.examId,
+      courseId: record.courseId,
+      userId: record.userId,
+      status: record.status,
+      score: typeof record.score === 'number' ? record.score : undefined,
+      totalQuestions: typeof record.totalQuestions === 'number' ? record.totalQuestions : undefined,
+      startedAt: record.startedAt,
+      submittedAt: record.submittedAt ?? undefined,
+      responses: (record.responses as DigitalExamAttempt['responses']) || [],
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     }
   }
 }
 
 export class DigitalCourseService {
-  static collection() {
-    return db.collection(COLLECTIONS.digitalCourses)
-  }
-
   static async list(churchId: string, limit: number = 50): Promise<DigitalCourse[]> {
-    try {
-      const snapshot = await this.collection()
-        .where('churchId', '==', churchId)
-        .orderBy('createdAt', 'desc')
-        .limit(limit)
-        .get()
-
-      return snapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
-    } catch (error: any) {
-      const needsIndex =
-        error?.code === 9 ||
-        error?.message?.includes('FAILED_PRECONDITION') ||
-        error?.message?.includes('requires an index')
-
-      if (!needsIndex) {
-        throw error
-      }
-
-      const fallbackSnapshot = await this.collection()
-        .where('churchId', '==', churchId)
-        .limit(limit)
-        .get()
-
-      const courses = fallbackSnapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
-      return courses.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    }
+    const records = await prisma.digitalCourse.findMany({
+      where: { churchId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    })
+    return records.map((r) => this.fromRecord(r))
   }
 
   static async get(courseId: string): Promise<DigitalCourse | null> {
-    const doc = await this.collection().doc(courseId).get()
-    if (!doc.exists) return null
-    return this.fromDoc(doc.id, doc.data()!)
+    const record = await prisma.digitalCourse.findUnique({ where: { id: courseId } })
+    return record ? this.fromRecord(record) : null
   }
 
   static async create(input: DigitalCourseInput): Promise<DigitalCourse> {
-    const docRef = this.collection().doc()
-    const payload = buildDocWithTimestamps({
-      churchId: input.churchId,
-      title: input.title,
-      summary: input.summary ?? '',
-      accessType: input.accessType ?? 'open',
-      mentors: input.mentors ?? [],
-      estimatedHours: input.estimatedHours ?? null,
-      coverImageUrl: input.coverImageUrl ?? null,
-      tags: input.tags ?? [],
-      status: input.status ?? 'draft',
-      pricing: normalizePricing(input.pricing),
-      certificateTheme: input.certificateTheme ?? null,
-      createdBy: input.createdBy,
-      updatedBy: input.updatedBy ?? input.createdBy,
+    const record = await prisma.digitalCourse.create({
+      data: {
+        churchId: input.churchId,
+        title: input.title,
+        summary: input.summary ?? '',
+        accessType: input.accessType ?? 'open',
+        mentors: input.mentors ?? [],
+        estimatedHours: input.estimatedHours ?? null,
+        coverImageUrl: input.coverImageUrl ?? null,
+        tags: input.tags ?? [],
+        status: input.status ?? 'draft',
+        pricing: normalizePricing(input.pricing) as unknown as Prisma.InputJsonValue,
+        certificateTheme: (input.certificateTheme ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+        createdBy: input.createdBy,
+        updatedBy: input.updatedBy ?? input.createdBy,
+      },
     })
-
-    await docRef.set(payload)
-    const created = await docRef.get()
-    return this.fromDoc(created.id, created.data()!)
+    return this.fromRecord(record)
   }
 
   static async update(courseId: string, data: Partial<DigitalCourseInput>): Promise<DigitalCourse | null> {
-    const docRef = this.collection().doc(courseId)
-    const existing = await docRef.get()
-    if (!existing.exists) return null
+    const existing = await prisma.digitalCourse.findUnique({ where: { id: courseId } })
+    if (!existing) return null
 
-    const updateData: Record<string, any> = {
-      ...data,
-      updatedBy: data.updatedBy ?? data.createdBy ?? existing.data()?.updatedBy,
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    if (data.pricing) {
-      updateData.pricing = normalizePricing(data.pricing)
-    }
-    if (data.certificateTheme !== undefined) {
-      updateData.certificateTheme = data.certificateTheme ?? null
-    }
-
-    await docRef.update(updateData)
-    const updated = await docRef.get()
-    return this.fromDoc(updated.id, updated.data()!)
+    const { pricing, certificateTheme, churchId: _c, createdBy: _cb, ...rest } = data
+    const record = await prisma.digitalCourse.update({
+      where: { id: courseId },
+      data: {
+        ...(omitUndefined(rest) as Prisma.DigitalCourseUpdateInput),
+        ...(pricing !== undefined ? { pricing: normalizePricing(pricing) as unknown as Prisma.InputJsonValue } : {}),
+        ...(certificateTheme !== undefined
+          ? { certificateTheme: (certificateTheme ?? Prisma.JsonNull) as Prisma.InputJsonValue }
+          : {}),
+        updatedBy: data.updatedBy ?? existing.updatedBy,
+      },
+    })
+    return this.fromRecord(record)
   }
 
   static async delete(courseId: string): Promise<void> {
-    await this.collection().doc(courseId).delete()
+    await prisma.digitalCourse.delete({ where: { id: courseId } })
   }
 
-  private static fromDoc(id: string, data: Record<string, any>): DigitalCourse {
+  private static fromRecord(record: any): DigitalCourse {
     return {
-      id,
-      churchId: data.churchId,
-      title: data.title,
-      summary: data.summary || undefined,
-      accessType: data.accessType,
-      mentors: data.mentors || [],
-      estimatedHours: data.estimatedHours ?? undefined,
-      coverImageUrl: data.coverImageUrl || undefined,
-      tags: data.tags || [],
-      status: data.status ?? 'draft',
-      pricing: normalizePricing(data.pricing),
-      certificateTheme: data.certificateTheme || undefined,
-      createdBy: data.createdBy,
-      updatedBy: data.updatedBy,
-      createdAt: data.createdAt ? toDate(data.createdAt) : new Date(),
-      updatedAt: data.updatedAt ? toDate(data.updatedAt) : new Date(),
+      id: record.id,
+      churchId: record.churchId,
+      title: record.title,
+      summary: record.summary || undefined,
+      accessType: record.accessType,
+      mentors: record.mentors || [],
+      estimatedHours: record.estimatedHours ?? undefined,
+      coverImageUrl: record.coverImageUrl || undefined,
+      tags: record.tags || [],
+      status: record.status ?? 'draft',
+      pricing: normalizePricing(record.pricing as DigitalCoursePricing),
+      certificateTheme: (record.certificateTheme as CertificateTheme) || undefined,
+      createdBy: record.createdBy,
+      updatedBy: record.updatedBy,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     }
   }
 }
 
 export class DigitalCourseSectionService {
-  static collection() {
-    return db.collection(COLLECTIONS.digitalCourseSections)
-  }
-
   static async listByCourse(courseId: string): Promise<DigitalCourseSection[]> {
-    try {
-      const snapshot = await this.collection().where('courseId', '==', courseId).orderBy('order', 'asc').get()
-      return snapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
-    } catch (error: any) {
-      const needsIndex =
-        error?.code === 9 ||
-        error?.message?.includes('FAILED_PRECONDITION') ||
-        error?.message?.includes('requires an index')
-
-      if (!needsIndex) {
-        throw error
-      }
-
-      const fallbackSnapshot = await this.collection().where('courseId', '==', courseId).get()
-      const sections = fallbackSnapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
-      return sections.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-    }
+    const records = await prisma.digitalCourseSection.findMany({
+      where: { courseId },
+      orderBy: { order: 'asc' },
+    })
+    return records.map((r) => this.fromRecord(r))
   }
 
   static async get(sectionId: string): Promise<DigitalCourseSection | null> {
-    const doc = await this.collection().doc(sectionId).get()
-    if (!doc.exists) return null
-    return this.fromDoc(doc.id, doc.data()!)
+    const record = await prisma.digitalCourseSection.findUnique({ where: { id: sectionId } })
+    return record ? this.fromRecord(record) : null
   }
 
   static async create(input: DigitalCourseSectionInput): Promise<DigitalCourseSection> {
-    const docRef = this.collection().doc()
-    const existingCount = await this.collection().where('courseId', '==', input.courseId).get()
-    const payload = {
-      courseId: input.courseId,
-      title: input.title,
-      description: input.description ?? '',
-      order: input.order ?? existingCount.size + 1,
-      estimatedHours: input.estimatedHours ?? null,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    await docRef.set(payload)
-    const created = await docRef.get()
-    return this.fromDoc(created.id, created.data()!)
+    const existingCount = await prisma.digitalCourseSection.count({
+      where: { courseId: input.courseId },
+    })
+    const record = await prisma.digitalCourseSection.create({
+      data: {
+        courseId: input.courseId,
+        title: input.title,
+        description: input.description ?? '',
+        order: input.order ?? existingCount + 1,
+        estimatedHours: input.estimatedHours ?? null,
+      },
+    })
+    return this.fromRecord(record)
   }
 
   static async update(
     sectionId: string,
     data: Partial<Omit<DigitalCourseSectionInput, 'courseId'>>,
   ): Promise<DigitalCourseSection | null> {
-    const docRef = this.collection().doc(sectionId)
-    const existing = await docRef.get()
-    if (!existing.exists) return null
+    const existing = await prisma.digitalCourseSection.findUnique({ where: { id: sectionId } })
+    if (!existing) return null
 
-    await docRef.update({
-      ...omitUndefined(data),
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.digitalCourseSection.update({
+      where: { id: sectionId },
+      data: omitUndefined(data) as Prisma.DigitalCourseSectionUpdateInput,
     })
-
-    const updated = await docRef.get()
-    return this.fromDoc(updated.id, updated.data()!)
+    return this.fromRecord(record)
   }
 
   static async delete(sectionId: string): Promise<void> {
-    await this.collection().doc(sectionId).delete()
+    await prisma.digitalCourseSection.delete({ where: { id: sectionId } })
   }
 
-  private static fromDoc(id: string, data: Record<string, any>): DigitalCourseSection {
+  private static fromRecord(record: any): DigitalCourseSection {
     return {
-      id,
-      courseId: data.courseId,
-      title: data.title,
-      description: data.description || undefined,
-      order: data.order,
-      estimatedHours: data.estimatedHours ?? undefined,
-      createdAt: data.createdAt ? toDate(data.createdAt) : new Date(),
-      updatedAt: data.updatedAt ? toDate(data.updatedAt) : new Date(),
+      id: record.id,
+      courseId: record.courseId,
+      title: record.title,
+      description: record.description || undefined,
+      order: record.order,
+      estimatedHours: record.estimatedHours ?? undefined,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     }
   }
 }
 
 export class DigitalCourseModuleService {
-  static collection() {
-    return db.collection(COLLECTIONS.digitalCourseModules)
-  }
-
   static async listByCourse(courseId: string): Promise<DigitalCourseModule[]> {
-    try {
-      const snapshot = await this.collection().where('courseId', '==', courseId).orderBy('order', 'asc').get()
-      return snapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
-    } catch (error: any) {
-      const needsIndex =
-        error?.code === 9 ||
-        error?.message?.includes('FAILED_PRECONDITION') ||
-        error?.message?.includes('requires an index')
-      if (!needsIndex) throw error
-      const fallbackSnapshot = await this.collection().where('courseId', '==', courseId).get()
-      const modules = fallbackSnapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
-      return modules.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-    }
+    const records = await prisma.digitalCourseModule.findMany({
+      where: { courseId },
+      orderBy: { order: 'asc' },
+    })
+    return records.map((r) => this.fromRecord(r))
   }
 
   static async listBySection(sectionId: string): Promise<DigitalCourseModule[]> {
-    try {
-      const snapshot = await this.collection().where('sectionId', '==', sectionId).orderBy('order', 'asc').get()
-      return snapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
-    } catch (error: any) {
-      const needsIndex =
-        error?.code === 9 ||
-        error?.message?.includes('FAILED_PRECONDITION') ||
-        error?.message?.includes('requires an index')
-      if (!needsIndex) throw error
-      const fallbackSnapshot = await this.collection().where('sectionId', '==', sectionId).get()
-      const modules = fallbackSnapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
-      return modules.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-    }
+    const records = await prisma.digitalCourseModule.findMany({
+      where: { sectionId },
+      orderBy: { order: 'asc' },
+    })
+    return records.map((r) => this.fromRecord(r))
   }
 
   static async get(moduleId: string): Promise<DigitalCourseModule | null> {
-    const doc = await this.collection().doc(moduleId).get()
-    if (!doc.exists) return null
-    return this.fromDoc(doc.id, doc.data()!)
+    const record = await prisma.digitalCourseModule.findUnique({ where: { id: moduleId } })
+    return record ? this.fromRecord(record) : null
   }
 
   static async create(input: DigitalCourseModuleInput): Promise<DigitalCourseModule> {
-    const docRef = this.collection().doc()
-    const existingCount = await this.collection().where('sectionId', '==', input.sectionId).get()
-    const payload = {
-      courseId: input.courseId,
-      sectionId: input.sectionId,
-      title: input.title,
-      description: input.description ?? '',
-      order: input.order ?? existingCount.size + 1,
-      estimatedMinutes: input.estimatedMinutes ?? null,
-      videoUrl: input.videoUrl ?? null,
-      audioUrl: input.audioUrl ?? null,
-      audioFileName: input.audioFileName ?? null,
-      audioStoragePath: input.audioStoragePath ?? null,
-      bookUrl: input.bookUrl ?? null,
-      bookFileName: input.bookFileName ?? null,
-      bookStoragePath: input.bookStoragePath ?? null,
-      contentType: input.contentType ?? 'video',
-      textContent: input.textContent ?? '',
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    await docRef.set(payload)
-    const created = await docRef.get()
-    return this.fromDoc(created.id, created.data()!)
+    const existingCount = await prisma.digitalCourseModule.count({
+      where: { sectionId: input.sectionId },
+    })
+    const record = await prisma.digitalCourseModule.create({
+      data: {
+        courseId: input.courseId,
+        sectionId: input.sectionId,
+        title: input.title,
+        description: input.description ?? '',
+        order: input.order ?? existingCount + 1,
+        estimatedMinutes: input.estimatedMinutes ?? null,
+        videoUrl: input.videoUrl ?? null,
+        audioUrl: input.audioUrl ?? null,
+        audioFileName: input.audioFileName ?? null,
+        audioStoragePath: input.audioStoragePath ?? null,
+        bookUrl: input.bookUrl ?? null,
+        bookFileName: input.bookFileName ?? null,
+        bookStoragePath: input.bookStoragePath ?? null,
+        contentType: input.contentType ?? 'video',
+        textContent: input.textContent ?? '',
+      },
+    })
+    return this.fromRecord(record)
   }
 
   static async update(
     moduleId: string,
     data: Partial<Omit<DigitalCourseModuleInput, 'courseId'>>,
   ): Promise<DigitalCourseModule | null> {
-    const docRef = this.collection().doc(moduleId)
-    const existing = await docRef.get()
-    if (!existing.exists) return null
+    const existing = await prisma.digitalCourseModule.findUnique({ where: { id: moduleId } })
+    if (!existing) return null
 
-    await docRef.update({
-      ...omitUndefined(data),
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.digitalCourseModule.update({
+      where: { id: moduleId },
+      data: omitUndefined(data) as Prisma.DigitalCourseModuleUpdateInput,
     })
-
-    const updated = await docRef.get()
-    return this.fromDoc(updated.id, updated.data()!)
+    return this.fromRecord(record)
   }
 
   static async delete(moduleId: string): Promise<void> {
-    await this.collection().doc(moduleId).delete()
+    await prisma.digitalCourseModule.delete({ where: { id: moduleId } })
   }
 
-  private static fromDoc(id: string, data: Record<string, any>): DigitalCourseModule {
+  private static fromRecord(record: any): DigitalCourseModule {
     return {
-      id,
-      courseId: data.courseId,
-      sectionId: data.sectionId,
-      title: data.title,
-      description: data.description || undefined,
-      order: data.order,
-      estimatedMinutes: data.estimatedMinutes ?? undefined,
-      videoUrl: data.videoUrl || undefined,
-      audioUrl: data.audioUrl || undefined,
-      audioFileName: data.audioFileName || undefined,
-      audioStoragePath: data.audioStoragePath || undefined,
-      bookUrl: data.bookUrl || undefined,
-      bookFileName: data.bookFileName || undefined,
-      bookStoragePath: data.bookStoragePath || undefined,
-      contentType: (data.contentType as DigitalCourseModuleContentType) || 'video',
-      textContent: data.textContent || undefined,
-      createdAt: data.createdAt ? toDate(data.createdAt) : new Date(),
-      updatedAt: data.updatedAt ? toDate(data.updatedAt) : new Date(),
+      id: record.id,
+      courseId: record.courseId,
+      sectionId: record.sectionId,
+      title: record.title,
+      description: record.description || undefined,
+      order: record.order,
+      estimatedMinutes: record.estimatedMinutes ?? undefined,
+      videoUrl: record.videoUrl || undefined,
+      audioUrl: record.audioUrl || undefined,
+      audioFileName: record.audioFileName || undefined,
+      audioStoragePath: record.audioStoragePath || undefined,
+      bookUrl: record.bookUrl || undefined,
+      bookFileName: record.bookFileName || undefined,
+      bookStoragePath: record.bookStoragePath || undefined,
+      contentType: (record.contentType as DigitalCourseModuleContentType) || 'video',
+      textContent: record.textContent || undefined,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     }
   }
 }
 
 export class DigitalCourseLessonService {
-  static collection() {
-    return db.collection(COLLECTIONS.digitalCourseLessons)
-  }
-
   static async listByModule(moduleId: string): Promise<DigitalCourseLesson[]> {
-    const snapshot = await this.collection().where('moduleId', '==', moduleId).orderBy('order', 'asc').get()
-    return snapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
+    const records = await prisma.digitalCourseLesson.findMany({
+      where: { moduleId },
+      orderBy: { order: 'asc' },
+    })
+    return records.map((r) => this.fromRecord(r))
   }
 
   static async get(lessonId: string): Promise<DigitalCourseLesson | null> {
-    const doc = await this.collection().doc(lessonId).get()
-    if (!doc.exists) return null
-    return this.fromDoc(doc.id, doc.data()!)
+    const record = await prisma.digitalCourseLesson.findUnique({ where: { id: lessonId } })
+    return record ? this.fromRecord(record) : null
   }
 
   static async create(input: DigitalCourseLessonInput): Promise<DigitalCourseLesson> {
-    const docRef = this.collection().doc()
-    const existingCount = await this.collection().where('moduleId', '==', input.moduleId).get()
-    const payload = {
-      courseId: input.courseId,
-      moduleId: input.moduleId,
-      title: input.title,
-      description: input.description ?? '',
-      videoUrl: input.videoUrl ?? null,
-      audioUrl: input.audioUrl ?? null,
-      attachmentUrls: input.attachmentUrls ?? [],
-      transcript: input.transcript ?? '',
-      order: input.order ?? existingCount.size + 1,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    await docRef.set(payload)
-    const created = await docRef.get()
-    return this.fromDoc(created.id, created.data()!)
+    const existingCount = await prisma.digitalCourseLesson.count({
+      where: { moduleId: input.moduleId },
+    })
+    const record = await prisma.digitalCourseLesson.create({
+      data: {
+        courseId: input.courseId,
+        moduleId: input.moduleId,
+        title: input.title,
+        description: input.description ?? '',
+        videoUrl: input.videoUrl ?? null,
+        audioUrl: input.audioUrl ?? null,
+        attachmentUrls: input.attachmentUrls ?? [],
+        transcript: input.transcript ?? '',
+        order: input.order ?? existingCount + 1,
+      },
+    })
+    return this.fromRecord(record)
   }
 
   static async update(
     lessonId: string,
     data: Partial<Omit<DigitalCourseLessonInput, 'courseId'>>,
   ): Promise<DigitalCourseLesson | null> {
-    const docRef = this.collection().doc(lessonId)
-    const existing = await docRef.get()
-    if (!existing.exists) return null
+    const existing = await prisma.digitalCourseLesson.findUnique({ where: { id: lessonId } })
+    if (!existing) return null
 
-    await docRef.update({
-      ...omitUndefined(data),
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.digitalCourseLesson.update({
+      where: { id: lessonId },
+      data: omitUndefined(data) as Prisma.DigitalCourseLessonUpdateInput,
     })
-
-    const updated = await docRef.get()
-    return this.fromDoc(updated.id, updated.data()!)
+    return this.fromRecord(record)
   }
 
   static async delete(lessonId: string): Promise<void> {
-    await this.collection().doc(lessonId).delete()
+    await prisma.digitalCourseLesson.delete({ where: { id: lessonId } })
   }
 
-  private static fromDoc(id: string, data: Record<string, any>): DigitalCourseLesson {
+  private static fromRecord(record: any): DigitalCourseLesson {
     return {
-      id,
-      courseId: data.courseId,
-      moduleId: data.moduleId,
-      title: data.title,
-      description: data.description || undefined,
-      videoUrl: data.videoUrl || undefined,
-      audioUrl: data.audioUrl || undefined,
-      attachmentUrls: data.attachmentUrls || [],
-      transcript: data.transcript || undefined,
-      order: data.order,
-      createdAt: data.createdAt ? toDate(data.createdAt) : new Date(),
-      updatedAt: data.updatedAt ? toDate(data.updatedAt) : new Date(),
+      id: record.id,
+      courseId: record.courseId,
+      moduleId: record.moduleId,
+      title: record.title,
+      description: record.description || undefined,
+      videoUrl: record.videoUrl || undefined,
+      audioUrl: record.audioUrl || undefined,
+      attachmentUrls: record.attachmentUrls || [],
+      transcript: record.transcript || undefined,
+      order: record.order,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     }
   }
 }
 
 export class DigitalCourseAccessRequestService {
-  static collection() {
-    return db.collection(COLLECTIONS.digitalCourseAccessRequests)
-  }
-
   static async get(id: string): Promise<DigitalCourseAccessRequest | null> {
-    const doc = await this.collection().doc(id).get()
-    if (!doc.exists) return null
-    return this.fromDoc(doc.id, doc.data()!)
+    const record = await prisma.digitalCourseAccessRequest.findUnique({ where: { id } })
+    return record ? this.fromRecord(record) : null
   }
 
   static async listByCourse(
     courseId: string,
     status?: AccessRequestStatus,
   ): Promise<DigitalCourseAccessRequest[]> {
-    let query = this.collection().where('courseId', '==', courseId)
-    if (status) {
-      query = query.where('status', '==', status)
-    }
-    const snapshot = await query.orderBy('createdAt', 'desc').get()
-    return snapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
+    const records = await prisma.digitalCourseAccessRequest.findMany({
+      where: { courseId, ...(status ? { status } : {}) },
+      orderBy: { createdAt: 'desc' },
+    })
+    return records.map((r) => this.fromRecord(r))
   }
 
   static async listPending(courseId: string): Promise<DigitalCourseAccessRequest[]> {
@@ -1206,24 +1018,23 @@ export class DigitalCourseAccessRequestService {
   }
 
   static async listByUser(userId: string): Promise<DigitalCourseAccessRequest[]> {
-    const snapshot = await this.collection().where('userId', '==', userId).orderBy('createdAt', 'desc').get()
-    return snapshot.docs.map((doc) => this.fromDoc(doc.id, doc.data()))
+    const records = await prisma.digitalCourseAccessRequest.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    })
+    return records.map((r) => this.fromRecord(r))
   }
 
   static async submit(input: DigitalCourseAccessRequestInput): Promise<DigitalCourseAccessRequest> {
-    const docRef = this.collection().doc()
-    const payload = {
-      courseId: input.courseId,
-      userId: input.userId,
-      reason: input.reason ?? '',
-      status: 'pending' as AccessRequestStatus,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }
-
-    await docRef.set(payload)
-    const created = await docRef.get()
-    return this.fromDoc(created.id, created.data()!)
+    const record = await prisma.digitalCourseAccessRequest.create({
+      data: {
+        courseId: input.courseId,
+        userId: input.userId,
+        reason: input.reason ?? '',
+        status: 'pending',
+      },
+    })
+    return this.fromRecord(record)
   }
 
   static async updateStatus(
@@ -1232,32 +1043,31 @@ export class DigitalCourseAccessRequestService {
     reviewerId: string,
     reviewerNote?: string,
   ): Promise<DigitalCourseAccessRequest | null> {
-    const docRef = this.collection().doc(id)
-    const existing = await docRef.get()
-    if (!existing.exists) return null
+    const existing = await prisma.digitalCourseAccessRequest.findUnique({ where: { id } })
+    if (!existing) return null
 
-    await docRef.update({
-      status,
-      reviewerId,
-      reviewerNote: reviewerNote ?? null,
-      updatedAt: FieldValue.serverTimestamp(),
+    const record = await prisma.digitalCourseAccessRequest.update({
+      where: { id },
+      data: {
+        status,
+        reviewerId,
+        reviewerNote: reviewerNote ?? null,
+      },
     })
-
-    const updated = await docRef.get()
-    return this.fromDoc(updated.id, updated.data()!)
+    return this.fromRecord(record)
   }
 
-  private static fromDoc(id: string, data: Record<string, any>): DigitalCourseAccessRequest {
+  private static fromRecord(record: any): DigitalCourseAccessRequest {
     return {
-      id,
-      courseId: data.courseId,
-      userId: data.userId,
-      reason: data.reason || undefined,
-      status: data.status,
-      reviewerId: data.reviewerId || undefined,
-      reviewerNote: data.reviewerNote || undefined,
-      createdAt: data.createdAt ? toDate(data.createdAt) : new Date(),
-      updatedAt: data.updatedAt ? toDate(data.updatedAt) : new Date(),
+      id: record.id,
+      courseId: record.courseId,
+      userId: record.userId,
+      reason: record.reason || undefined,
+      status: record.status,
+      reviewerId: record.reviewerId || undefined,
+      reviewerNote: record.reviewerNote || undefined,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     }
   }
 }

@@ -4,8 +4,9 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { BadgeService, UserBadgeService } from '@/lib/services/badge-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
+
+const PRIVILEGED_ROLES = ['ADMIN', 'SUPER_ADMIN', 'PASTOR', 'BRANCH_ADMIN']
 
 export async function GET(request: Request) {
   try {
@@ -15,6 +16,7 @@ export async function GET(request: Request) {
     }
 
     const userId = (session.user as any).id
+    const sessionRole = (session.user as any).role as string | undefined
     const { searchParams } = new URL(request.url)
     const type = searchParams.get('type')
     const userIdParam = searchParams.get('userId')
@@ -22,26 +24,25 @@ export async function GET(request: Request) {
     // Get badges
     const badges = await BadgeService.findAll(type || undefined)
 
-    // Get user count for each badge
-    const badgesWithCounts = await Promise.all(
-      badges.map(async (badge) => {
-        const userCountSnapshot = await db.collection(COLLECTIONS.userBadges)
-          .where('badgeId', '==', badge.id)
-          .count()
-          .get()
+    // Batch user counts for all badges in one query
+    const counts = await prisma.userBadge.groupBy({
+      by: ['badgeId'],
+      where: { badgeId: { in: badges.map((b) => b.id) } },
+      _count: { _all: true },
+    })
+    const countByBadge = new Map(counts.map((c) => [c.badgeId, c._count._all]))
 
-        return {
-          ...badge,
-          _count: {
-            users: userCountSnapshot.data().count || 0,
-          },
-        }
-      })
-    )
+    const badgesWithCounts = badges.map((badge) => ({
+      ...badge,
+      _count: {
+        users: countByBadge.get(badge.id) || 0,
+      },
+    }))
 
-    // If userId provided, check which badges user has
+    // If userId provided, check which badges user has (self or privileged only)
     if (userIdParam || userId) {
-      const targetUserId = userIdParam || userId
+      const targetUserId =
+        userIdParam && PRIVILEGED_ROLES.includes(sessionRole || '') ? userIdParam : userId
       const userBadges = await UserBadgeService.findByUser(targetUserId)
       const userBadgeIds = new Set(userBadges.map((b) => b.badgeId))
 

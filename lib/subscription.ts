@@ -1,8 +1,7 @@
 import { SubscriptionService, SubscriptionPlanService, UsageMetricService } from './services/subscription-service'
 import { ChurchService } from './services/church-service'
 import { UserService } from './services/user-service'
-import { db } from './firestore'
-import { COLLECTIONS } from './firestore-collections'
+import { prisma } from './prisma'
 
 export interface UsageLimits {
   maxUsers?: number
@@ -100,16 +99,13 @@ export async function getChurchUsage(churchId: string): Promise<UsageStats> {
 
   // Calculate current usage
   const [userCount, sermonsCount, eventsCount, departmentsCount, groupsCount] = await Promise.all([
-    UserService.findByChurch(churchId).then(users => users.length),
-    db.collection(COLLECTIONS.sermons).where('churchId', '==', churchId).count().get(),
-    db.collection(COLLECTIONS.events)
-      .where('churchId', '==', churchId)
-      .where('startDate', '>=', periodStart)
-      .where('startDate', '<=', periodEnd)
-      .count()
-      .get(),
-    db.collection(COLLECTIONS.departments).where('churchId', '==', churchId).count().get(),
-    db.collection(COLLECTIONS.groups).where('churchId', '==', churchId).count().get(),
+    prisma.user.count({ where: { churchId } }),
+    prisma.sermon.count({ where: { churchId } }),
+    prisma.event.count({
+      where: { churchId, startDate: { gte: periodStart, lte: periodEnd } },
+    }),
+    prisma.department.count({ where: { churchId } }),
+    prisma.group.count({ where: { churchId } }),
   ])
 
   // Get API calls and AI sessions from metrics
@@ -123,10 +119,10 @@ export async function getChurchUsage(churchId: string): Promise<UsageStats> {
   return {
     userCount,
     storageUsedGB,
-    sermonsCount: sermonsCount.data().count || 0,
-    eventsCount: eventsCount.data().count || 0,
-    departmentsCount: departmentsCount.data().count || 0,
-    groupsCount: groupsCount.data().count || 0,
+    sermonsCount,
+    eventsCount,
+    departmentsCount,
+    groupsCount,
     apiCalls: apiCallsMetric?.value || 0,
     aiCoachingSessions: aiSessionsMetric?.value || 0,
   }
@@ -177,24 +173,7 @@ export async function incrementUsage(
   const now = new Date()
   const period = `${new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]}`
 
-  // Get existing metric
-  const existingMetrics = await UsageMetricService.findByChurch(churchId, metric)
-  const currentPeriodMetric = existingMetrics.find(m => m.period === period)
-
-  if (currentPeriodMetric) {
-    // Update existing
-    await db.collection(COLLECTIONS.usageMetrics).doc(currentPeriodMetric.id).update({
-      value: currentPeriodMetric.value + amount,
-    })
-  } else {
-    // Create new
-    await UsageMetricService.create({
-      churchId,
-      metricType: metric,
-      value: amount,
-      period,
-    })
-  }
+  await UsageMetricService.increment(churchId, metric, period, amount)
 }
 
 /**
@@ -340,7 +319,7 @@ export async function cancelSubscription(churchId: string, cancelAtPeriodEnd: bo
     updateData.endDate = new Date()
   }
 
-  await db.collection(COLLECTIONS.subscriptions).doc(subscription.id).update(updateData)
+  await SubscriptionService.update(subscription.id, updateData)
 
   return {
     ...subscription,

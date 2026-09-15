@@ -1,7 +1,7 @@
 /**
  * Email Service
- * Supports multiple providers: Resend, SendGrid, AWS SES
- * Default: Resend (recommended for ease of use)
+ * Supports multiple providers: Brevo, Resend, SendGrid, AWS SES
+ * Preferred on this VPS: Brevo
  */
 
 interface EmailOptions {
@@ -13,13 +13,16 @@ interface EmailOptions {
 }
 
 export class EmailService {
-  private static provider: 'resend' | 'sendgrid' | 'ses' | null = null
+  private static provider: 'brevo' | 'resend' | 'sendgrid' | 'ses' | null = null
 
   /**
    * Initialize email service based on available environment variables
+   * Brevo is the preferred provider on this VPS.
    */
   static initialize() {
-    if (process.env.RESEND_API_KEY) {
+    if (process.env.BREVO_API_KEY) {
+      this.provider = 'brevo'
+    } else if (process.env.RESEND_API_KEY) {
       this.provider = 'resend'
     } else if (process.env.SENDGRID_API_KEY) {
       this.provider = 'sendgrid'
@@ -50,6 +53,8 @@ export class EmailService {
 
     try {
       switch (this.provider) {
+        case 'brevo':
+          return await this.sendViaBrevo(options)
         case 'resend':
           return await this.sendViaResend(options)
         case 'sendgrid':
@@ -68,6 +73,45 @@ export class EmailService {
         success: false,
         error: error.message || 'Failed to send email',
       }
+    }
+  }
+
+  /**
+   * Send email via Brevo (Sendinblue)
+   */
+  private static async sendViaBrevo(options: EmailOptions) {
+    try {
+      const from = options.from || process.env.BREVO_FROM_EMAIL || 'noreply@example.com'
+      const fromName = process.env.BREVO_FROM_NAME || 'Pisairtel CMS'
+
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'accept': 'application/json',
+          'content-type': 'application/json',
+          'api-key': process.env.BREVO_API_KEY!,
+        },
+        body: JSON.stringify({
+          sender: { name: fromName, email: from },
+          to: [{ email: options.to }],
+          subject: options.subject,
+          htmlContent: options.html,
+          textContent: options.text || this.htmlToText(options.html),
+        }),
+      })
+
+      const result = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(result.message || `Brevo error: ${response.status}`)
+      }
+
+      return {
+        success: true,
+        messageId: result.messageId,
+      }
+    } catch (error: any) {
+      throw new Error(`Brevo error: ${error.message}`)
     }
   }
 

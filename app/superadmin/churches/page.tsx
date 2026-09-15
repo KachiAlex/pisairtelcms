@@ -2,8 +2,7 @@ import { redirect } from 'next/navigation'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { ChurchService } from '@/lib/services/church-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import ChurchesList from '@/components/superadmin/ChurchesList'
 
 export default async function ChurchesPage() {
@@ -20,27 +19,20 @@ export default async function ChurchesPage() {
 
   const churches = await ChurchService.findAll()
 
-  // Get user counts for each church
-  const churchesWithStats = await Promise.all(
-    churches.map(async (church) => {
-      const usersSnapshot = await db.collection(COLLECTIONS.users)
-        .where('churchId', '==', church.id)
-        .get()
-      
-      const subscriptionSnapshot = await db.collection(COLLECTIONS.subscriptions)
-        .where('churchId', '==', church.id)
-        .limit(1)
-        .get()
-      
-      const subscription = subscriptionSnapshot.empty ? null : subscriptionSnapshot.docs[0].data()
+  // Batch user counts and subscriptions for all churches (avoids N+1)
+  const churchIds = churches.map((c) => c.id)
+  const [userCounts, subscriptions] = await Promise.all([
+    prisma.user.groupBy({ by: ['churchId'], where: { churchId: { in: churchIds } }, _count: { _all: true } }),
+    prisma.subscription.findMany({ where: { churchId: { in: churchIds } } }),
+  ])
+  const userCountMap = new Map(userCounts.map((u) => [u.churchId, u._count._all]))
+  const subscriptionMap = new Map(subscriptions.map((s) => [s.churchId, s]))
 
-      return {
-        ...church,
-        userCount: usersSnapshot.size,
-        subscriptionStatus: subscription?.status || 'TRIAL',
-      }
-    })
-  )
+  const churchesWithStats = churches.map((church) => ({
+    ...church,
+    userCount: userCountMap.get(church.id) ?? 0,
+    subscriptionStatus: subscriptionMap.get(church.id)?.status || 'TRIAL',
+  }))
 
   const churchesForClient = churchesWithStats.map((church) => ({
     ...church,

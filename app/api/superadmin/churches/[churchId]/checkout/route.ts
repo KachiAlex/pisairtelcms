@@ -3,8 +3,6 @@ import { guardApi } from '@/lib/api-guard'
 import { SubscriptionPlanService, SubscriptionService } from '@/lib/services/subscription-service'
 import { SubscriptionPaymentService } from '@/lib/services/subscription-payment-service'
 import { SubscriptionPricingService } from '@/lib/services/subscription-pricing-service'
-import { db, FieldValue } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,10 +46,9 @@ export async function POST(
         ? 'ACTIVE'
         : subscription.status
 
-    await db.collection(COLLECTIONS.subscriptions).doc(subscription.id).update({
+    await SubscriptionService.update(subscription.id, {
       planId,
-      status: nextStatus,
-      updatedAt: FieldValue.serverTimestamp(),
+      status: nextStatus as any,
     })
 
     await SubscriptionPaymentService.create(

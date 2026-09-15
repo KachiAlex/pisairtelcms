@@ -68,7 +68,7 @@ export async function PATCH(request: Request) {
         )
       }
 
-      await NotificationService.markManyAsRead(notificationIds)
+      await NotificationService.markManyAsRead(notificationIds, userId)
 
       return NextResponse.json({
         success: true,
@@ -84,9 +84,7 @@ export async function PATCH(request: Request) {
         )
       }
 
-      for (const id of notificationIds) {
-        await NotificationService.deleteNotification(id)
-      }
+      await NotificationService.deleteManyNotifications(notificationIds, userId)
 
       return NextResponse.json({
         success: true,

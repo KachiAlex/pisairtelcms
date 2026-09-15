@@ -354,7 +354,7 @@ export default function ReportsHub({ isManager = true }: { isManager?: boolean }
               disabled={refreshing}
               className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary-600 text-white text-sm font-semibold shadow-sm hover:bg-primary-700 disabled:opacity-60 disabled:hover:bg-primary-600"
             >
-              {refreshing ? 'Refreshingâ€¦' : 'Apply filters'}
+              {refreshing ? 'Refreshing...' : 'Apply filters'}
             </button>
           </div>
         </div>
@@ -398,7 +398,7 @@ export default function ReportsHub({ isManager = true }: { isManager?: boolean }
               <p className="text-2xl font-bold text-gray-900 mt-1">
                 {attendance.peakSession.headcount > 0
                   ? numberFormatter.format(attendance.peakSession.headcount)
-                  : 'â€”'}
+                  : '--'}
               </p>
               <p className="text-sm text-gray-600">{attendance.peakSession.title || 'No data'}</p>
             </div>
@@ -414,7 +414,7 @@ export default function ReportsHub({ isManager = true }: { isManager?: boolean }
                   <div>
                     <p className="font-medium text-gray-900">{item.title}</p>
                     <p className="text-xs text-gray-500">
-                      {new Date(item.date).toLocaleDateString()} â€¢ {item.type} â€¢ {item.mode}
+                      {new Date(item.date).toLocaleDateString()}  -  {item.type}  -  {item.mode}
                     </p>
                   </div>
                   <div className="text-right font-semibold text-gray-900">
@@ -544,7 +544,7 @@ export default function ReportsHub({ isManager = true }: { isManager?: boolean }
                 <div key={member.id} className="text-sm">
                   <p className="font-semibold text-gray-900">{member.name}</p>
                   <p className="text-xs text-gray-500">
-                    {member.role} â€¢ Joined {formatDate(member.joinedAt)}
+                    {member.role}  -  Joined {formatDate(member.joinedAt)}
                   </p>
                 </div>
               ))}
@@ -584,7 +584,7 @@ export default function ReportsHub({ isManager = true }: { isManager?: boolean }
                   <div>
                     <p className="font-medium text-gray-900">{branch.name}</p>
                     <p className="text-xs text-gray-500">
-                      {[branch.city, branch.state, branch.country].filter(Boolean).join(', ') || 'â€”'}
+                      {[branch.city, branch.state, branch.country].filter(Boolean).join(', ') || '--'}
                     </p>
                   </div>
                   <div className="font-semibold text-gray-900">{numberFormatter.format(branch.members)}</div>

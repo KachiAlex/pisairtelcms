@@ -2,8 +2,7 @@ import { redirect } from 'next/navigation'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { ChurchService } from '@/lib/services/church-service'
-import { db } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
+import { prisma } from '@/lib/prisma'
 import Link from 'next/link'
 
 export const dynamic = 'force-dynamic'
@@ -25,14 +24,12 @@ export default async function SuperAdminDashboard() {
   const churches = await ChurchService.findAll()
   
   // Get total users count
-  const usersSnapshot = await db.collection(COLLECTIONS.users).get()
-  const totalUsers = usersSnapshot.size
+  const totalUsers = await prisma.user.count()
 
   // Get active subscriptions
-  const subscriptionsSnapshot = await db.collection(COLLECTIONS.subscriptions)
-    .where('status', '==', 'ACTIVE')
-    .get()
-  const activeSubscriptions = subscriptionsSnapshot.size
+  const activeSubscriptions = await prisma.subscription.count({
+    where: { status: 'ACTIVE' },
+  })
 
   // Get recent churches
   const recentChurches = churches.slice(0, 5)

@@ -4,8 +4,6 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { SubscriptionService } from '@/lib/services/subscription-service'
-import { db, FieldValue } from '@/lib/firestore'
-import { COLLECTIONS } from '@/lib/firestore-collections'
 
 export async function POST(
   request: Request,
@@ -33,10 +31,7 @@ export async function POST(
     }
 
     // Suspend subscription
-    await db.collection(COLLECTIONS.subscriptions).doc(subscription.id).update({
-      status: 'SUSPENDED',
-      updatedAt: FieldValue.serverTimestamp(),
-    })
+    await SubscriptionService.update(subscription.id, { status: 'SUSPENDED' as any })
 
     const updated = await SubscriptionService.findByChurch(churchId)
 
