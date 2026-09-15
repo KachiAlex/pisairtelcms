@@ -5,6 +5,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { MessageService } from '@/lib/services/message-service'
 import { UserService } from '@/lib/services/user-service'
+import { prisma } from '@/lib/prisma'
 
 export async function GET(request: Request) {
   try {
@@ -24,28 +25,21 @@ export async function GET(request: Request) {
       // Mark messages as read
       await MessageService.markConversationAsRead(userId, conversationId)
 
-      // Get user data for sender and receiver
-      const messagesWithUsers = await Promise.all(
-        messages.map(async (message) => {
-          const sender = await UserService.findById(message.senderId)
-          const receiver = await UserService.findById(message.receiverId)
-          return {
-            ...message,
-            sender: sender ? {
-              id: sender.id,
-              firstName: sender.firstName,
-              lastName: sender.lastName,
-              profileImage: sender.profileImage,
-            } : null,
-            receiver: receiver ? {
-              id: receiver.id,
-              firstName: receiver.firstName,
-              lastName: receiver.lastName,
-              profileImage: receiver.profileImage,
-            } : null,
-          }
-        })
-      )
+      // Get user data for senders and receivers — single batched query
+      const participantIds = [...new Set(messages.flatMap((m) => [m.senderId, m.receiverId]).filter(Boolean))] as string[]
+      const participants = participantIds.length
+        ? await prisma.user.findMany({
+            where: { id: { in: participantIds } },
+            select: { id: true, firstName: true, lastName: true, profileImage: true },
+          })
+        : []
+      const participantMap = new Map(participants.map((u) => [u.id, u]))
+
+      const messagesWithUsers = messages.map((message) => ({
+        ...message,
+        sender: participantMap.get(message.senderId) ?? null,
+        receiver: message.receiverId ? (participantMap.get(message.receiverId) ?? null) : null,
+      }))
 
       return NextResponse.json(messagesWithUsers)
     }
@@ -142,6 +136,13 @@ export async function POST(request: Request) {
       )
     }
 
+    // Receiver must exist and belong to the sender's church
+    const receiverUser = await UserService.findById(receiverId)
+    const senderChurchId = (session.user as any).churchId
+    if (!receiverUser || ((session.user as any).role !== 'SUPER_ADMIN' && receiverUser.churchId !== senderChurchId)) {
+      return NextResponse.json({ error: 'Receiver not found' }, { status: 404 })
+    }
+
     const trimmedContent = typeof content === 'string' ? content.trim() : ''
 
     const normalizedAttachments = Array.isArray(attachments)
@@ -180,7 +181,7 @@ export async function POST(request: Request) {
 
     // Get user data
     const sender = await UserService.findById(userId)
-    const receiver = await UserService.findById(receiverId)
+    const receiver = receiverUser
 
     return NextResponse.json({
       ...message,

@@ -7,6 +7,7 @@ import { getCurrentChurch } from '@/lib/church-context'
 import { GroupMessageService } from '@/lib/services/message-service'
 import { GroupMembershipService } from '@/lib/services/group-service'
 import { UserService } from '@/lib/services/user-service'
+import { prisma } from '@/lib/prisma'
 
 export async function GET(request: Request) {
   try {
@@ -38,21 +39,20 @@ export async function GET(request: Request) {
 
     const messages = await GroupMessageService.findByGroup(groupId, 100)
 
-    // Add user info to messages
-    const messagesWithUsers = await Promise.all(
-      messages.map(async (message) => {
-        const user = await UserService.findById(message.userId)
-        return {
-          ...message,
-          user: user ? {
-            id: user.id,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            profileImage: user.profileImage,
-          } : null,
-        }
-      })
-    )
+    // Add user info to messages — single batched query
+    const authorIds = [...new Set(messages.map((m) => m.userId).filter(Boolean))] as string[]
+    const authors = authorIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: authorIds } },
+          select: { id: true, firstName: true, lastName: true, profileImage: true },
+        })
+      : []
+    const authorMap = new Map(authors.map((u) => [u.id, u]))
+
+    const messagesWithUsers = messages.map((message) => ({
+      ...message,
+      user: authorMap.get(message.userId) ?? null,
+    }))
 
     return NextResponse.json(messagesWithUsers)
   } catch (error) {
