@@ -16,30 +16,41 @@ export async function GET(request: Request) {
 
     const { church } = guarded.ctx
 
-    const wageScales = await WageScaleService.findByChurch(churchId || church.id, positionId || undefined)
+    // Never trust a client-supplied churchId — scope to the session church
+    if (churchId && churchId !== church.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
-    // Add position and department info
-    const wageScalesWithDetails = await Promise.all(
-      wageScales.map(async (scale) => {
-        const position = await PayrollPositionService.findById(scale.positionId)
-        let department = null
-        if (position?.departmentId) {
-          department = await prisma.department.findUnique({
-            where: { id: position.departmentId },
-            select: { id: true, name: true },
-          })
-        }
+    const wageScales = await WageScaleService.findByChurch(church.id, positionId || undefined)
 
-        return {
-          ...scale,
-          position: position ? {
-            id: position.id,
-            name: position.name,
-            department,
-          } : null,
-        }
-      })
-    )
+    // Batch-load positions and departments instead of querying per scale
+    const positionIds = [...new Set(wageScales.map((s) => s.positionId).filter(Boolean))]
+    const positions = await prisma.payrollPosition.findMany({
+      where: { id: { in: positionIds } },
+      select: { id: true, name: true, departmentId: true },
+    })
+    const positionById = new Map(positions.map((p) => [p.id, p]))
+
+    const departmentIds = [...new Set(positions.map((p) => p.departmentId).filter(Boolean))] as string[]
+    const departments = await prisma.department.findMany({
+      where: { id: { in: departmentIds } },
+      select: { id: true, name: true },
+    })
+    const departmentById = new Map(departments.map((d) => [d.id, d]))
+
+    const wageScalesWithDetails = wageScales.map((scale) => {
+      const position = positionById.get(scale.positionId)
+      const department = position?.departmentId ? departmentById.get(position.departmentId) ?? null : null
+
+      return {
+        ...scale,
+        position: position ? {
+          id: position.id,
+          name: position.name,
+          department,
+        } : null,
+      }
+    })
 
     return NextResponse.json(wageScalesWithDetails)
   } catch (error) {

@@ -89,6 +89,7 @@ enum PayrollType {
 
 enum PayrollStatus {
   PENDING
+  PROCESSED
   APPROVED
   PAID
   CANCELLED

@@ -22,21 +22,20 @@ export async function GET(request: Request) {
       periods = periods.filter(p => p.status === status)
     }
 
-    // Add record counts
-    const periodsWithCounts = await Promise.all(
-      periods.map(async (period) => {
-        const recordsCount = await prisma.payrollRecord.count({
-          where: { periodId: period.id },
-        })
+    // Add record counts via a single grouped query (avoids N+1)
+    const recordCounts = await prisma.payrollRecord.groupBy({
+      by: ['periodId'],
+      where: { periodId: { in: periods.map((p) => p.id) } },
+      _count: { _all: true },
+    })
+    const countByPeriod = new Map(recordCounts.map((r) => [r.periodId, r._count._all]))
 
-        return {
-          ...period,
-          _count: {
-            records: recordsCount,
-          },
-        }
-      })
-    )
+    const periodsWithCounts = periods.map((period) => ({
+      ...period,
+      _count: {
+        records: countByPeriod.get(period.id) ?? 0,
+      },
+    }))
 
     return NextResponse.json(periodsWithCounts.slice(0, 50))
   } catch (error) {

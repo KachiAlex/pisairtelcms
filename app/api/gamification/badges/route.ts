@@ -43,6 +43,18 @@ export async function GET(request: Request) {
     if (userIdParam || userId) {
       const targetUserId =
         userIdParam && PRIVILEGED_ROLES.includes(sessionRole || '') ? userIdParam : userId
+
+      // Tenant isolation: privileged lookups must target a same-church user
+      if (targetUserId !== userId && sessionRole !== 'SUPER_ADMIN') {
+        const [requester, target] = await Promise.all([
+          prisma.user.findUnique({ where: { id: userId }, select: { churchId: true } }),
+          prisma.user.findUnique({ where: { id: targetUserId }, select: { churchId: true } }),
+        ])
+        if (!requester || !target || target.churchId !== requester.churchId) {
+          return NextResponse.json({ error: 'User not found' }, { status: 404 })
+        }
+      }
+
       const userBadges = await UserBadgeService.findByUser(targetUserId)
       const userBadgeIds = new Set(userBadges.map((b) => b.badgeId))
 

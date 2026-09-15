@@ -18,9 +18,25 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const session = await getServerSession(authOptions)
+
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      select: { id: true, churchId: true, role: true },
+    })
+
     const livestream = await LivestreamService.getLivestream(params.id)
 
     if (!livestream) {
+      return NextResponse.json({ error: 'Livestream not found' }, { status: 404 })
+    }
+
+    // Tenant isolation: only same-church members (or superadmins) can read
+    if (user?.role !== 'SUPER_ADMIN' && livestream.churchId !== user?.churchId) {
       return NextResponse.json({ error: 'Livestream not found' }, { status: 404 })
     }
 
@@ -59,7 +75,7 @@ export async function PATCH(
     }
 
     // Check permissions
-    if (!['ADMIN', 'PASTOR', 'LEADER'].includes(user.role)) {
+    if (!['ADMIN', 'PASTOR', 'LEADER', 'SUPER_ADMIN'].includes(user.role)) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
     }
 
@@ -69,7 +85,7 @@ export async function PATCH(
       select: { churchId: true },
     })
 
-    if (!livestream || livestream.churchId !== user.churchId) {
+    if (!livestream || (user.role !== 'SUPER_ADMIN' && livestream.churchId !== user.churchId)) {
       return NextResponse.json({ error: 'Livestream not found' }, { status: 404 })
     }
 
@@ -118,7 +134,7 @@ export async function DELETE(
     }
 
     // Check permissions
-    if (!['ADMIN', 'PASTOR'].includes(user.role)) {
+    if (!['ADMIN', 'PASTOR', 'SUPER_ADMIN'].includes(user.role)) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
     }
 

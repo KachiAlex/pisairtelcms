@@ -35,10 +35,13 @@ export async function POST(request: Request) {
       )
     }
 
-    // Verify child belongs to parent
+    // Verify child belongs to parent — staff roles may check in any child
+    // in the church (check-in desk scenario)
     const child = await UserService.findById(childId)
+    const userRole = (session.user as any).role
+    const isStaffCheckIn = ['ADMIN', 'SUPER_ADMIN', 'PASTOR', 'BRANCH_ADMIN', 'LEADER'].includes(userRole)
 
-    if (!child || child.parentId !== userId || child.churchId !== church.id) {
+    if (!child || child.churchId !== church.id || (child.parentId !== userId && !isStaffCheckIn)) {
       return NextResponse.json(
         { error: 'Child not found or access denied' },
         { status: 404 }

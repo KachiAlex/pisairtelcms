@@ -97,7 +97,7 @@ function withLegacy<T>(record: any): T {
 }
 
 const PAYROLL_TYPES = ['SALARY', 'HOURLY', 'COMMISSION', 'STIPEND']
-const PAYROLL_STATUSES = ['PENDING', 'APPROVED', 'PAID', 'CANCELLED']
+const PAYROLL_STATUSES = ['PENDING', 'PROCESSED', 'APPROVED', 'PAID', 'CANCELLED']
 
 export class PayrollPositionService {
   static async findByChurch(churchId: string, activeOnly: boolean = true): Promise<PayrollPosition[]> {

@@ -67,6 +67,16 @@ export async function PATCH(request: Request) {
     const body = await request.json()
     const { branchId } = body
 
+    // Verify the branch belongs to the user's church
+    if (branchId) {
+      const { prisma } = await import('@/lib/prisma')
+      const branch = await prisma.branch.findUnique({ where: { id: branchId } })
+      const user = await UserService.findById(userId)
+      if (!branch || !user || branch.churchId !== user.churchId) {
+        return NextResponse.json({ error: 'Invalid branch' }, { status: 400 })
+      }
+    }
+
     // Update user's branch preference
     await UserService.update(userId, {
       branchId: branchId || null,

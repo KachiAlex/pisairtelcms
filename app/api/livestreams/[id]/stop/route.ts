@@ -34,7 +34,7 @@ export async function POST(
     }
 
     // Check permissions
-    if (!['ADMIN', 'PASTOR', 'LEADER'].includes(user.role)) {
+    if (!['ADMIN', 'PASTOR', 'LEADER', 'SUPER_ADMIN'].includes(user.role)) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
     }
 

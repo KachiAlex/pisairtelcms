@@ -48,41 +48,58 @@ export async function GET(request: Request) {
     const children = childrenResult
       .sort((a, b) => a.firstName.localeCompare(b.firstName))
 
-    // Get current check-in status and counts for each child
-    const childrenWithStatus = await Promise.all(
-      children.map(async (child) => {
-        const activeCheckIn = await ChildrenCheckInService.findActiveByChild(child.id)
+    // Batch-load check-in status and counts (avoids N+1)
+    const childIds = children.map((c) => c.id)
+    const [activeCheckIns, checkInCounts, readingPlanCounts, badgeCounts] = await Promise.all([
+      prisma.childrenCheckIn.findMany({
+        where: { childId: { in: childIds }, checkedOutAt: null },
+      }),
+      prisma.childrenCheckIn.groupBy({
+        by: ['childId'],
+        where: { childId: { in: childIds } },
+        _count: { _all: true },
+      }),
+      prisma.readingPlanProgress.groupBy({
+        by: ['userId'],
+        where: { userId: { in: childIds } },
+        _count: { _all: true },
+      }),
+      prisma.userBadge.groupBy({
+        by: ['userId'],
+        where: { userId: { in: childIds } },
+        _count: { _all: true },
+      }),
+    ])
+    const activeCheckInByChild = new Map(activeCheckIns.map((c) => [c.childId, c]))
+    const checkInCountByChild = new Map(checkInCounts.map((c) => [c.childId, c._count._all]))
+    const readingPlanCountByUser = new Map(readingPlanCounts.map((c) => [c.userId, c._count._all]))
+    const badgeCountByUser = new Map(badgeCounts.map((c) => [c.userId, c._count._all]))
 
-        // Get counts
-        const [checkInsCount, readingPlansCount, badgesCount] = await Promise.all([
-          prisma.childrenCheckIn.count({ where: { childId: child.id } }),
-          prisma.readingPlanProgress.count({ where: { userId: child.id } }),
-          prisma.userBadge.count({ where: { userId: child.id } }),
-        ])
+    const childrenWithStatus = children.map((child) => {
+      const activeCheckIn = activeCheckInByChild.get(child.id)
 
-        return {
-          id: child.id,
-          firstName: child.firstName,
-          lastName: child.lastName,
-          dateOfBirth: child.dateOfBirth,
-          profileImage: child.profileImage,
-          role: child.role,
-          xp: child.xp || 0,
-          level: child.level || 1,
-          isCheckedIn: !!activeCheckIn,
-          checkInInfo: activeCheckIn ? {
-            id: activeCheckIn.id,
-            checkedInAt: activeCheckIn.checkedInAt,
-            qrCode: activeCheckIn.qrCode,
-          } : null,
-          _count: {
-            childrenCheckIns: checkInsCount,
-            readingPlans: readingPlansCount,
-            badges: badgesCount,
-          },
-        }
-      })
-    )
+      return {
+        id: child.id,
+        firstName: child.firstName,
+        lastName: child.lastName,
+        dateOfBirth: child.dateOfBirth,
+        profileImage: child.profileImage,
+        role: child.role,
+        xp: child.xp || 0,
+        level: child.level || 1,
+        isCheckedIn: !!activeCheckIn,
+        checkInInfo: activeCheckIn ? {
+          id: activeCheckIn.id,
+          checkedInAt: activeCheckIn.checkedInAt,
+          qrCode: activeCheckIn.qrCode,
+        } : null,
+        _count: {
+          childrenCheckIns: checkInCountByChild.get(child.id) ?? 0,
+          readingPlans: readingPlanCountByUser.get(child.id) ?? 0,
+          badges: badgeCountByUser.get(child.id) ?? 0,
+        },
+      }
+    })
 
     return NextResponse.json(childrenWithStatus)
   } catch (error) {

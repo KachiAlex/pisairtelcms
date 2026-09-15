@@ -23,7 +23,7 @@ export async function GET(
     const currentUserId = (session.user as any).id
     const userRole = (session.user as any).role
 
-    // Users can view their own profile, admins can view anyone
+    // Users can view their own profile, privileged roles can view others
     if (userId !== currentUserId && !['ADMIN', 'SUPER_ADMIN', 'PASTOR'].includes(userRole)) {
       return NextResponse.json(
         { error: 'Insufficient permissions' },
@@ -38,6 +38,17 @@ export async function GET(
         { error: 'User not found' },
         { status: 404 }
       )
+    }
+
+    // Tenant isolation: non-self lookups must stay within the actor's church
+    if (userId !== currentUserId && userRole !== 'SUPER_ADMIN') {
+      const church = await getCurrentChurch(currentUserId)
+      if (!church || user.churchId !== church.id) {
+        return NextResponse.json(
+          { error: 'User not found' },
+          { status: 404 }
+        )
+      }
     }
 
     // Get counts
@@ -88,12 +99,25 @@ export async function PUT(
     const currentUserId = (session.user as any).id
     const userRole = (session.user as any).role
 
-    // Users can edit their own profile (except role), admins can edit anyone
+    // Users can edit their own profile (except role), privileged roles can edit others
     if (userId !== currentUserId && !['ADMIN', 'SUPER_ADMIN', 'PASTOR'].includes(userRole)) {
       return NextResponse.json(
         { error: 'Insufficient permissions' },
         { status: 403 }
       )
+    }
+
+    // Tenant isolation: non-self updates must stay within the actor's church.
+    // This covers every field path below (basic fields, role, suspension, etc.)
+    if (userId !== currentUserId && userRole !== 'SUPER_ADMIN') {
+      const scopeChurch = await getCurrentChurch(currentUserId)
+      const scopeTarget = await UserService.findById(userId)
+      if (!scopeChurch || !scopeTarget || scopeTarget.churchId !== scopeChurch.id) {
+        return NextResponse.json(
+          { error: 'User not found' },
+          { status: 404 }
+        )
+      }
     }
 
     const body = await request.json()
@@ -148,6 +172,15 @@ export async function PUT(
       if (!canManageUser(userRole as any, role as any)) {
         return NextResponse.json(
           { error: `You don't have permission to assign the ${role} role` },
+          { status: 403 }
+        )
+      }
+      // Also require permission over the target's current role (prevents
+      // e.g. a PASTOR demoting an ADMIN)
+      const roleTarget = await UserService.findById(userId)
+      if (roleTarget && !canManageUser(userRole as any, roleTarget.role as any)) {
+        return NextResponse.json(
+          { error: `You don't have permission to manage ${roleTarget.role} users` },
           { status: 403 }
         )
       }
@@ -341,7 +374,7 @@ export async function PUT(
           { status: 403 }
         )
       }
-      updateData.password = await bcrypt.hash(password, 10)
+      updateData.password = password
     }
 
     const updatedUser = await UserService.update(userId, updateData)
@@ -421,6 +454,14 @@ export async function DELETE(
 
     if (targetUser.role === 'SUPER_ADMIN') {
       return NextResponse.json({ error: 'Cannot delete super admin accounts' }, { status: 403 })
+    }
+
+    // Actor must be able to manage the target's role
+    if (!canManageUser(userRole as any, targetUser.role as any)) {
+      return NextResponse.json(
+        { error: `You don't have permission to delete ${targetUser.role} users` },
+        { status: 403 }
+      )
     }
 
     await UserService.deleteWithRelations(userId)

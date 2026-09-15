@@ -24,6 +24,14 @@ export async function GET(
       return NextResponse.json({ error: 'Survey not found' }, { status: 404 })
     }
 
+    // Tenant isolation: survey must belong to the user's church
+    const { UserService } = await import('@/lib/services/user-service')
+    const sessionUser = await UserService.findById((session.user as any).id)
+    const isSuperAdmin = sessionUser?.role === 'SUPER_ADMIN'
+    if (!isSuperAdmin && (!sessionUser || sessionUser.churchId !== survey.churchId)) {
+      return NextResponse.json({ error: 'Survey not found' }, { status: 404 })
+    }
+
     return NextResponse.json({ survey })
   } catch (error) {
     console.error('Error fetching survey:', error)

@@ -500,9 +500,29 @@ export class SurveyService {
       throw new Error('Survey deadline has passed')
     }
 
+    // Authenticated users must belong to the survey's church and target audience
+    if (userId) {
+      const allowed = await this.canUserAccessSurvey(surveyId, userId)
+      const respondent = await prisma.user.findUnique({ where: { id: userId }, select: { churchId: true } })
+      if (!respondent || respondent.churchId !== survey.churchId || !allowed) {
+        throw new Error('You do not have access to this survey')
+      }
+    }
+
     // Check for duplicate responses
     if (!survey.allowMultipleResponses && userId && survey.responses && survey.responses.length > 0) {
       throw new Error('You have already responded to this survey')
+    }
+
+    // Anonymous submissions: dedupe by IP when multiple responses are disallowed
+    if (!survey.allowMultipleResponses && !userId && ipAddress && ipAddress !== 'unknown') {
+      const existingFromIp = await prisma.surveyResponse.findFirst({
+        where: { surveyId, ipAddress },
+        select: { id: true }
+      })
+      if (existingFromIp) {
+        throw new Error('A response has already been submitted from this network')
+      }
     }
 
     // Validate required questions
@@ -621,6 +641,7 @@ export class SurveyService {
       where: { id: surveyId },
       select: {
         status: true,
+        churchId: true,
         targetAudienceType: true,
         targetBranchIds: true,
         targetGroupIds: true,
@@ -629,6 +650,9 @@ export class SurveyService {
     })
 
     if (!survey || survey.status !== 'ACTIVE') return false
+
+    // Tenant isolation: a survey is only accessible within its own church
+    if (survey.churchId !== user.churchId) return false
 
     return this.isUserInTargetAudience(survey, user)
   }
@@ -806,6 +830,17 @@ export class SurveyService {
 
     if (!surveyRecord) {
       throw new Error('Survey not found')
+    }
+
+    // Tenant isolation: privileged roles still cannot cross churches
+    if (requesterRole !== 'SUPER_ADMIN') {
+      const requester = await prisma.user.findUnique({
+        where: { id: requesterId },
+        select: { churchId: true }
+      })
+      if (!requester || requester.churchId !== surveyRecord.churchId) {
+        throw new Error('Survey not found')
+      }
     }
 
     if (!canManageAll && surveyRecord.createdBy !== requesterId) {

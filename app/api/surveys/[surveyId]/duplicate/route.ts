@@ -17,8 +17,16 @@ export async function POST(
 
     // Get the original survey
     const originalSurvey = await SurveyService.getSurveyById(params.surveyId)
-    
+
     if (!originalSurvey) {
+      return NextResponse.json({ error: 'Survey not found' }, { status: 404 })
+    }
+
+    // Tenant isolation: only members of the survey's church can duplicate it
+    const { UserService } = await import('@/lib/services/user-service')
+    const sessionUser = await UserService.findById((session.user as any).id)
+    const isSuperAdmin = sessionUser?.role === 'SUPER_ADMIN'
+    if (!isSuperAdmin && (!sessionUser || sessionUser.churchId !== originalSurvey.churchId)) {
       return NextResponse.json({ error: 'Survey not found' }, { status: 404 })
     }
 

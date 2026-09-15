@@ -28,41 +28,42 @@ export async function GET(request: Request) {
       allSalaries = allSalaries.filter(s => !s.endDate)
     }
 
-    // Add user, position, and wage scale info
-    const salariesWithDetails = await Promise.all(
-      allSalaries.map(async (salary) => {
-        const [user, position, wageScale] = await Promise.all([
-          UserService.findById(salary.userId),
-          PayrollPositionService.findById(salary.positionId),
-          WageScaleService.findById(salary.wageScaleId),
-        ])
+    // Batch-load users, positions, wage scales, and departments (avoids N+1)
+    const userIds = [...new Set(allSalaries.map((s) => s.userId))]
+    const positionIds = [...new Set(allSalaries.map((s) => s.positionId).filter(Boolean))] as string[]
+    const wageScaleIds = [...new Set(allSalaries.map((s) => s.wageScaleId).filter(Boolean))] as string[]
 
-        let department = null
-        if (position?.departmentId) {
-          department = await prisma.department.findUnique({
-            where: { id: position.departmentId },
-            select: { id: true, name: true },
-          })
-        }
+    const [users, positions, wageScales] = await Promise.all([
+      prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, firstName: true, lastName: true, email: true, profileImage: true, role: true },
+      }),
+      prisma.payrollPosition.findMany({ where: { id: { in: positionIds } } }),
+      prisma.wageScale.findMany({ where: { id: { in: wageScaleIds } } }),
+    ])
+    const userById = new Map(users.map((u) => [u.id, u]))
+    const positionById = new Map(positions.map((p) => [p.id, p]))
+    const wageScaleById = new Map(wageScales.map((w) => [w.id, w]))
 
-        return {
-          ...salary,
-          user: user ? {
-            id: user.id,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            email: user.email,
-            profileImage: user.profileImage,
-            role: user.role,
-          } : null,
-          position: position ? {
-            ...position,
-            department,
-          } : null,
-          wageScale,
-        }
-      })
-    )
+    const departmentIds = [...new Set(positions.map((p) => p.departmentId).filter(Boolean))] as string[]
+    const departments = await prisma.department.findMany({
+      where: { id: { in: departmentIds } },
+      select: { id: true, name: true },
+    })
+    const departmentById = new Map(departments.map((d) => [d.id, d]))
+
+    const salariesWithDetails = allSalaries.map((salary) => {
+      const user = userById.get(salary.userId)
+      const position = positionById.get(salary.positionId)
+      const department = position?.departmentId ? departmentById.get(position.departmentId) ?? null : null
+
+      return {
+        ...salary,
+        user: user ?? null,
+        position: position ? { ...position, department } : null,
+        wageScale: wageScaleById.get(salary.wageScaleId) ?? null,
+      }
+    })
 
     return NextResponse.json(salariesWithDetails.sort((a, b) => 
       new Date(b.startDate).getTime() - new Date(a.startDate).getTime()

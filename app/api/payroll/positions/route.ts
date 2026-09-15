@@ -14,37 +14,39 @@ export async function GET() {
 
     const positions = await PayrollPositionService.findByChurch(church.id, true)
 
-    // Add department, wage scales, and counts
-    const positionsWithDetails = await Promise.all(
-      positions.map(async (position) => {
-        // Get department
-        let department = null
-        if (position.departmentId) {
-          const dept = await prisma.department.findUnique({
-            where: { id: position.departmentId },
-            select: { id: true, name: true },
-          })
-          department = dept
-        }
+    // Batch-load departments, wage scales, and salary counts (avoids N+1)
+    const positionIds = positions.map((p) => p.id)
+    const departmentIds = [...new Set(positions.map((p) => p.departmentId).filter(Boolean))] as string[]
 
-        // Get active wage scales
-        const wageScales = await WageScaleService.findByChurch(church.id, position.id)
+    const [departments, allWageScales, salaryCounts] = await Promise.all([
+      prisma.department.findMany({
+        where: { id: { in: departmentIds } },
+        select: { id: true, name: true },
+      }),
+      WageScaleService.findByChurch(church.id),
+      prisma.userSalary.groupBy({
+        by: ['positionId'],
+        where: { positionId: { in: positionIds } },
+        _count: { _all: true },
+      }),
+    ])
+    const departmentById = new Map(departments.map((d) => [d.id, d]))
+    const wageScalesByPosition = new Map<string, typeof allWageScales>()
+    for (const scale of allWageScales) {
+      const list = wageScalesByPosition.get(scale.positionId) ?? []
+      list.push(scale)
+      wageScalesByPosition.set(scale.positionId, list)
+    }
+    const countByPosition = new Map(salaryCounts.map((c) => [c.positionId, c._count._all]))
 
-        // Get salary count
-        const salariesCount = await prisma.userSalary.count({
-          where: { positionId: position.id },
-        })
-
-        return {
-          ...position,
-          department,
-          wageScales: wageScales.slice(0, 1), // Get most recent
-          _count: {
-            userSalaries: salariesCount,
-          },
-        }
-      })
-    )
+    const positionsWithDetails = positions.map((position) => ({
+      ...position,
+      department: position.departmentId ? departmentById.get(position.departmentId) ?? null : null,
+      wageScales: (wageScalesByPosition.get(position.id) ?? []).slice(0, 1), // Most recent
+      _count: {
+        userSalaries: countByPosition.get(position.id) ?? 0,
+      },
+    }))
 
     return NextResponse.json(positionsWithDetails)
   } catch (error) {
@@ -71,6 +73,17 @@ export async function POST(request: Request) {
         { error: 'Position name is required' },
         { status: 400 }
       )
+    }
+
+    // Verify department belongs to this church
+    if (departmentId) {
+      const dept = await prisma.department.findUnique({
+        where: { id: departmentId },
+        select: { churchId: true },
+      })
+      if (!dept || dept.churchId !== church.id) {
+        return NextResponse.json({ error: 'Invalid department' }, { status: 400 })
+      }
     }
 
     const position = await PayrollPositionService.create({
