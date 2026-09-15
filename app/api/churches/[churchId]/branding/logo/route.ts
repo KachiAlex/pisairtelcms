@@ -27,6 +27,11 @@ export async function POST(
     const userId = (session.user as any).id as string
     const { churchId } = params
 
+    // Tenant isolation: non-superadmins may only brand their own church
+    if (role !== 'SUPER_ADMIN' && (session.user as any).churchId !== churchId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const church = await ChurchService.findById(churchId)
     if (!church) {
       return NextResponse.json({ error: 'Church not found' }, { status: 404 })

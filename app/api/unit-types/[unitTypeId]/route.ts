@@ -8,6 +8,11 @@ export async function PATCH(request: Request, { params }: { params: { unitTypeId
   const guarded = await guardApi({ requireChurch: true, allowedRoles: ['ADMIN', 'SUPER_ADMIN'] })
   if (!guarded.ok) return guarded.response
 
+  const existing = await UnitTypeService.findById(params.unitTypeId)
+  if (!existing || (guarded.ctx.role !== 'SUPER_ADMIN' && existing.churchId !== guarded.ctx.church!.id)) {
+    return NextResponse.json({ error: 'Unit type not found' }, { status: 404 })
+  }
+
   const body = await request.json()
   const patch: Partial<{
     name: string

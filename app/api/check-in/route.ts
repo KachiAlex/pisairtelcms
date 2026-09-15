@@ -28,6 +28,14 @@ export async function POST(request: Request) {
     const body = await request.json()
     const { eventId, location, qrCode } = body
 
+    // Event-scoped check-ins must target an event in the user's church
+    if (eventId) {
+      const event = await prisma.event.findUnique({ where: { id: eventId }, select: { churchId: true } })
+      if (!event || event.churchId !== church.id) {
+        return NextResponse.json({ error: 'Event not found' }, { status: 404 })
+      }
+    }
+
     // Generate QR code if not provided
     const checkInQRCode = qrCode || generateQRCode('CHECKIN')
 

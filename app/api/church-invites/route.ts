@@ -6,6 +6,7 @@ import { ChurchInviteService, type ChurchInvitePurpose } from '@/lib/services/ch
 import { BranchService } from '@/lib/services/branch-service'
 import { UserService } from '@/lib/services/user-service'
 import { resolveBranchScope, hasBranchAccess, hasGlobalChurchAccess } from '@/lib/services/branch-scope'
+import { canManageUser } from '@/lib/permissions'
 import type { UserRole } from '@/types'
 
 const ALLOWED_ROLES: UserRole[] = ['ADMIN', 'PASTOR', 'SUPER_ADMIN', 'BRANCH_ADMIN']
@@ -169,9 +170,28 @@ export async function POST(request: Request) {
 
     let targetRole: UserRole | undefined
     if (typeof body?.targetRole === 'string' && body.targetRole.trim()) {
-      targetRole = body.targetRole.trim().toUpperCase() as UserRole
+      const requested = body.targetRole.trim().toUpperCase()
+      const VALID_ROLES: UserRole[] = ['MEMBER', 'VISITOR', 'VOLUNTEER', 'LEADER', 'PASTOR', 'ADMIN', 'BRANCH_ADMIN', 'STAFF']
+      if (!VALID_ROLES.includes(requested as UserRole)) {
+        return NextResponse.json({ error: 'Invalid target role' }, { status: 400 })
+      }
+      // A church invite can never grant SUPER_ADMIN, and the creator may only
+      // grant roles they are allowed to manage
+      if (!canManageUser(role!, requested as UserRole)) {
+        return NextResponse.json(
+          { error: 'You do not have permission to create an invite for this role' },
+          { status: 403 },
+        )
+      }
+      targetRole = requested as UserRole
     }
     if (!targetRole && purpose === 'BRANCH_ADMIN_SIGNUP') {
+      if (!canManageUser(role!, 'BRANCH_ADMIN')) {
+        return NextResponse.json(
+          { error: 'You do not have permission to create branch admin invites' },
+          { status: 403 },
+        )
+      }
       targetRole = 'BRANCH_ADMIN'
     }
 

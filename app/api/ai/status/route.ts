@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth-options'
 import { getSpiritualCoachingResponse } from '@/lib/ai/openai'
 
 export const dynamic = 'force-dynamic'
@@ -19,6 +21,11 @@ function getProviderInfo(): { provider: string; model: string } {
  */
 export async function GET() {
   try {
+    const session = await getServerSession(authOptions)
+    if (!session || !['ADMIN', 'SUPER_ADMIN'].includes((session.user as any)?.role)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const testQuestion = 'What is faith?'
     const { provider, model } = getProviderInfo()
 

@@ -41,7 +41,8 @@ export async function GET(
     }
 
     const event = await EventService.findById(eventId)
-    if (!event) {
+    const isSuperAdmin = (session.user as any).role === 'SUPER_ADMIN'
+    if (!event || (!isSuperAdmin && event.churchId !== (session.user as any).churchId)) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 })
     }
 
@@ -75,7 +76,7 @@ export async function PATCH(
     }
 
     const event = await EventService.findById(eventId)
-    if (!event) {
+    if (!event || (userRole !== 'SUPER_ADMIN' && event.churchId !== (session.user as any).churchId)) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 })
     }
 
@@ -153,7 +154,7 @@ export async function DELETE(
     }
 
     const event = await EventService.findById(eventId)
-    if (!event) {
+    if (!event || (userRole !== 'SUPER_ADMIN' && event.churchId !== (session.user as any).churchId)) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 })
     }
 

@@ -31,16 +31,17 @@ export async function GET(request: Request) {
 
     const unit = await UnitService.findById(unitId)
     const membership = await UnitMembershipService.findByUserAndUnit(userId, unitId)
-    
+    const unitInChurch = !!unit && unit.churchId === church.id
+
     return NextResponse.json({
       userId,
       userRole,
       churchId: church.id,
-      unit: unit ? {
-        id: unit.id,
-        name: unit.name,
-        churchId: unit.churchId,
-        headUserId: unit.headUserId
+      unit: unitInChurch ? {
+        id: unit!.id,
+        name: unit!.name,
+        churchId: unit!.churchId,
+        headUserId: unit!.headUserId
       } : null,
       membership: membership ? {
         id: membership.id,

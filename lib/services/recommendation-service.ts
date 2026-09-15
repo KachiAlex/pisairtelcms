@@ -580,16 +580,20 @@ export class RecommendationService {
   static async updateRecommendationStatus(
     id: string,
     status: RecommendationStatus,
-    actionNotes?: string
+    actionNotes?: string,
+    userId?: string
   ): Promise<void> {
-    await prisma.recommendation.update({
-      where: { id },
+    const updated = await prisma.recommendation.updateMany({
+      where: { id, ...(userId ? { userId } : {}) },
       data: {
         status,
         actionNotes: actionNotes ?? null,
         actionTakenAt: status === 'implemented' ? new Date() : null,
       },
     })
+    if (updated.count === 0) {
+      throw new Error('Recommendation not found')
+    }
   }
 
   /**

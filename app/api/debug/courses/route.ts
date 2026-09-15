@@ -1,17 +1,25 @@
 import { NextResponse } from 'next/server'
 import { DigitalCourseService } from '@/lib/services/digital-school-service'
+import { guardApi } from '@/lib/api-guard'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
   try {
+    const guarded = await guardApi({ requireChurch: true })
+    if (!guarded.ok) return guarded.response
+
     const { searchParams } = new URL(request.url)
     const churchId = searchParams.get('churchId')
-    
+
     if (!churchId) {
       return NextResponse.json({ error: 'churchId parameter required' }, { status: 400 })
     }
-    
+
+    if (guarded.ctx.church!.id !== churchId && guarded.ctx.role !== 'SUPER_ADMIN') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const courses = await DigitalCourseService.list(churchId)
     
     return NextResponse.json({

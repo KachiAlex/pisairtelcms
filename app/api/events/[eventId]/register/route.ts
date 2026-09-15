@@ -21,9 +21,10 @@ export async function POST(
     const userId = (session.user as any).id
     const { eventId } = params
 
-    // Get event
+    // Get event — must belong to the user's church
     const event = await EventService.findById(eventId)
-    if (!event) {
+    const userChurchId = (session.user as any).churchId
+    if (!event || (event.churchId !== userChurchId && (session.user as any).role !== 'SUPER_ADMIN')) {
       return NextResponse.json(
         { error: 'Event not found' },
         { status: 404 }

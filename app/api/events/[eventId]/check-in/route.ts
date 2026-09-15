@@ -18,7 +18,14 @@ export async function POST(
       return permError
     }
 
+    const session = await getServerSession(authOptions)
     const { eventId } = params
+
+    // Tenant isolation: the event must belong to the operator's church
+    const targetEvent = await EventService.findById(eventId)
+    if (!targetEvent || ((session?.user as any)?.role !== 'SUPER_ADMIN' && targetEvent.churchId !== (session?.user as any)?.churchId)) {
+      return NextResponse.json({ error: 'Event not found' }, { status: 404 })
+    }
     const body = await request.json()
     const { qrCode, userId } = body
 

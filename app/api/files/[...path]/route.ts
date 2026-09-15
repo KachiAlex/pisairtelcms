@@ -51,16 +51,21 @@ export async function GET(
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
 
-    const contentType = CONTENT_TYPES[extname(absPath).toLowerCase()] || 'application/octet-stream'
+    const ext = extname(absPath).toLowerCase()
+    const contentType = CONTENT_TYPES[ext] || 'application/octet-stream'
     const stream = Readable.toWeb(createReadStream(absPath)) as ReadableStream
 
-    return new NextResponse(stream, {
-      headers: {
-        'Content-Type': contentType,
-        'Content-Length': String(info.size),
-        'Cache-Control': 'public, max-age=31536000, immutable',
-      },
-    })
+    const headers: Record<string, string> = {
+      'Content-Type': contentType,
+      'Content-Length': String(info.size),
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    }
+    // SVGs can carry scripts — serve them sandboxed so they can't execute
+    if (ext === '.svg') {
+      headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'"
+    }
+
+    return new NextResponse(stream, { headers })
   } catch (error) {
     console.error('File serve error:', error)
     return NextResponse.json({ error: 'Not found' }, { status: 404 })

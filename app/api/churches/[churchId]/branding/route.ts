@@ -62,6 +62,11 @@ export async function PUT(
       )
     }
 
+    // Tenant isolation: non-superadmins may only brand their own church
+    if (userRole !== 'SUPER_ADMIN' && (session.user as any).churchId !== churchId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const updateData: any = {}
     if (logo !== undefined) updateData.logo = logo
     if (primaryColor !== undefined) updateData.primaryColor = primaryColor

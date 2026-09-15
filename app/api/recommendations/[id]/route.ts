@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
 import { RecommendationService } from '@/lib/services/recommendation-service'
+import { prisma } from '@/lib/prisma'
 
 /**
  * PATCH /api/recommendations/[id]
@@ -22,11 +23,27 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
     }
 
-    await RecommendationService.updateRecommendationStatus(
-      params.id,
-      status,
-      actionNotes
-    )
+    // Members may only update their own recommendations; church staff may
+    // act on recommendations belonging to users in their church
+    const userRole = (session.user as any).role
+    const isStaff = ['ADMIN', 'SUPER_ADMIN', 'PASTOR', 'BRANCH_ADMIN'].includes(userRole)
+
+    if (isStaff && userRole !== 'SUPER_ADMIN') {
+      const rec = await prisma.recommendation.findUnique({ where: { id: params.id }, select: { churchId: true } })
+      if (!rec || rec.churchId !== (session.user as any).churchId) {
+        return NextResponse.json({ error: 'Recommendation not found' }, { status: 404 })
+      }
+      await RecommendationService.updateRecommendationStatus(params.id, status, actionNotes)
+    } else if (userRole === 'SUPER_ADMIN') {
+      await RecommendationService.updateRecommendationStatus(params.id, status, actionNotes)
+    } else {
+      await RecommendationService.updateRecommendationStatus(
+        params.id,
+        status,
+        actionNotes,
+        session.user.id
+      )
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {
