@@ -5,6 +5,7 @@ import { SermonService } from '@/lib/services/sermon-service'
 import { prisma } from '@/lib/prisma'
 import { guardApi } from '@/lib/api-guard'
 import { checkUsageLimit } from '@/lib/subscription'
+import { SermonMediaService } from '@/lib/services/sermon-media-service'
 
 export async function GET(request: Request) {
   try {
@@ -154,14 +155,27 @@ export async function POST(request: Request) {
       )
     }
 
+    // Auto-derive a thumbnail (YouTube/Vimeo platform art, or an ffmpeg
+    // frame grab for direct video URLs) and duration when not provided.
+    let resolvedThumbnail = thumbnailUrl || undefined
+    let resolvedDuration = duration ? parseInt(duration) : undefined
+    if (videoUrl && (!resolvedThumbnail || !resolvedDuration)) {
+      const meta = await SermonMediaService.resolveVideoMeta(videoUrl, {
+        churchId: church.id,
+        userId,
+      })
+      resolvedThumbnail = resolvedThumbnail || meta.thumbnailUrl
+      resolvedDuration = resolvedDuration || meta.durationSeconds
+    }
+
     const sermon = await SermonService.create({
       title,
       description,
       speaker,
       videoUrl: videoUrl || undefined,
       audioUrl: audioUrl || undefined,
-      thumbnailUrl: thumbnailUrl || undefined,
-      duration: duration ? parseInt(duration) : undefined,
+      thumbnailUrl: resolvedThumbnail,
+      duration: resolvedDuration,
       category: category || undefined,
       tags: tags || [],
       topics: [], // Default empty topics array

@@ -29,7 +29,8 @@ RUN npm run build
 FROM node:18-slim AS runner
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+# ffmpeg/ffprobe power sermon thumbnail extraction + duration probing
+RUN apt-get update && apt-get install -y openssl ca-certificates ffmpeg && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV production
 ENV NEXT_TELEMETRY_DISABLED 1
