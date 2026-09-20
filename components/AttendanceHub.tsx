@@ -26,6 +26,12 @@ type AttendanceRecord = {
   guestName?: string
   channel: string
   checkedInAt: string
+  user?: { firstName?: string; lastName?: string } | null
+}
+
+type QrPayload = {
+  checkInUrl: string
+  qrPngDataUrl: string
 }
 
 export default function AttendanceHub({ isManager }: { isManager: boolean }) {
@@ -58,6 +64,11 @@ export default function AttendanceHub({ isManager }: { isManager: boolean }) {
 
   const [checkInSaving, setCheckInSaving] = useState(false)
   const [checkInForm, setCheckInForm] = useState({ userId: '', guestName: '', channel: 'OFFLINE' })
+
+  const [qrSession, setQrSession] = useState<AttendanceSession | null>(null)
+  const [qrData, setQrData] = useState<QrPayload | null>(null)
+  const [qrBusy, setQrBusy] = useState(false)
+  const [qrCopied, setQrCopied] = useState(false)
 
   const queryString = useMemo(() => {
     const qs = new URLSearchParams()
@@ -224,6 +235,61 @@ export default function AttendanceHub({ isManager }: { isManager: boolean }) {
     }
   }
 
+  async function openQr(s: AttendanceSession) {
+    setQrSession(s)
+    setQrData(null)
+    setQrCopied(false)
+    setQrBusy(true)
+    try {
+      const res = await fetch(`/api/attendance/sessions/${s.id}/qr`, { cache: 'no-store' })
+      if (!res.ok) throw new Error(await readApiError(res))
+      setQrData(await res.json())
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load QR code')
+      setQrSession(null)
+    } finally {
+      setQrBusy(false)
+    }
+  }
+
+  async function regenerateQr() {
+    if (!qrSession) return
+    setQrBusy(true)
+    try {
+      const res = await fetch(`/api/attendance/sessions/${qrSession.id}/qr`, { method: 'POST' })
+      if (!res.ok) throw new Error(await readApiError(res))
+      setQrData(await res.json())
+      setQrCopied(false)
+    } catch (e: any) {
+      setError(e?.message || 'Failed to regenerate')
+    } finally {
+      setQrBusy(false)
+    }
+  }
+
+  function copyQrUrl() {
+    if (!qrData) return
+    navigator.clipboard?.writeText(qrData.checkInUrl).catch(() => {})
+    setQrCopied(true)
+    setTimeout(() => setQrCopied(false), 2000)
+  }
+
+  function printQr() {
+    if (!qrData || !qrSession) return
+    const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
+    const w = window.open('', '_blank')
+    if (!w) return
+    w.document.write(
+      `<!doctype html><html><head><title>Check-in QR — ${esc(qrSession.title)}</title>` +
+        `<style>body{font-family:system-ui,sans-serif;text-align:center;padding:48px}img{width:340px;height:340px}p{color:#555}</style></head><body>` +
+        `<h1>${esc(qrSession.title)}</h1><p>Scan this code to check in</p>` +
+        `<img src="${qrData.qrPngDataUrl}" alt="Check-in QR"/>` +
+        `<p style="font-size:12px;word-break:break-all">${esc(qrData.checkInUrl)}</p>` +
+        `<script>window.onload=function(){window.print()}<\/script></body></html>`,
+    )
+    w.document.close()
+  }
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       <div>
@@ -310,25 +376,47 @@ export default function AttendanceHub({ isManager }: { isManager: boolean }) {
                 <div className="text-gray-600">No sessions for this filter.</div>
               ) : (
                 sessions.map((s) => (
-                  <button
+                  <div
                     key={s.id}
-                    onClick={async () => {
-                      setSelectedSession(s)
-                      setHeadcount({
-                        total: s.headcount?.total?.toString?.() || '',
-                        men: s.headcount?.men?.toString?.() || '',
-                        women: s.headcount?.women?.toString?.() || '',
-                        children: s.headcount?.children?.toString?.() || '',
-                        firstTimers: s.headcount?.firstTimers?.toString?.() || '',
-                      })
-                      await loadRecords(s.id)
-                    }}
-                    className={`w-full text-left border rounded-lg p-3 hover:bg-gray-50 ${selectedSession?.id === s.id ? 'border-blue-400 bg-blue-50/30' : ''}`}
+                    className={`w-full border rounded-lg p-3 hover:bg-gray-50 ${selectedSession?.id === s.id ? 'border-blue-400 bg-blue-50/30' : ''}`}
                   >
-                    <div className="text-sm font-semibold">{s.title}</div>
-                    <div className="text-xs text-gray-600">{new Date(s.startAt).toLocaleString()} • {s.type} • {s.mode} {s.branchId ? `• Branch: ${s.branchId}` : ''}</div>
-                    <div className="text-xs text-gray-600 mt-1">Check-ins: {s.checkInCount ?? 0}</div>
-                  </button>
+                    <button
+                      onClick={async () => {
+                        setSelectedSession(s)
+                        setHeadcount({
+                          total: s.headcount?.total?.toString?.() || '',
+                          men: s.headcount?.men?.toString?.() || '',
+                          women: s.headcount?.women?.toString?.() || '',
+                          children: s.headcount?.children?.toString?.() || '',
+                          firstTimers: s.headcount?.firstTimers?.toString?.() || '',
+                        })
+                        await loadRecords(s.id)
+                      }}
+                      className="w-full text-left"
+                    >
+                      <div className="text-sm font-semibold">{s.title}</div>
+                      <div className="text-xs text-gray-600">{new Date(s.startAt).toLocaleString()} • {s.type} • {s.mode} {s.branchId ? `• Branch: ${s.branchId}` : ''}</div>
+                      <div className="text-xs text-gray-600 mt-1">Check-ins: {s.checkInCount ?? 0}</div>
+                    </button>
+                    {isManager && (
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          onClick={() => openQr(s)}
+                          className="px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-semibold text-gray-700 hover:bg-gray-100"
+                        >
+                          QR Code
+                        </button>
+                        <a
+                          href={`/attendance/live/${s.id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-3 py-1.5 rounded-lg border border-indigo-300 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+                        >
+                          Live Display
+                        </a>
+                      </div>
+                    )}
+                  </div>
                 ))
               )}
             </div>
@@ -386,13 +474,76 @@ export default function AttendanceHub({ isManager }: { isManager: boolean }) {
                 ) : (
                   records.map((r) => (
                     <div key={r.id} className="border rounded-lg p-3">
-                      <div className="text-sm font-semibold">{r.userId ? `User: ${r.userId}` : `Guest: ${r.guestName || 'Unknown'}`}</div>
+                      <div className="text-sm font-semibold">
+                        {r.user ? [r.user.firstName, r.user.lastName].filter(Boolean).join(' ') : `Guest: ${r.guestName || 'Unknown'}`}
+                      </div>
                       <div className="text-xs text-gray-600">{new Date(r.checkedInAt).toLocaleString()} • {r.channel}</div>
                     </div>
                   ))
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {qrSession && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setQrSession(null)}>
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">{qrSession.title}</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Scan to check in — print for the entrance or share the link</p>
+              </div>
+              <button onClick={() => setQrSession(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+
+            <div className="mt-4 flex justify-center">
+              {qrBusy && !qrData ? (
+                <div className="h-64 w-64 flex items-center justify-center text-gray-400">Generating…</div>
+              ) : qrData ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={qrData.qrPngDataUrl} alt="Check-in QR code" className="h-64 w-64 rounded-lg border" />
+              ) : null}
+            </div>
+
+            {qrData && (
+              <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 break-all text-center">
+                {qrData.checkInUrl}
+              </div>
+            )}
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button onClick={copyQrUrl} disabled={!qrData} className="px-3 py-2 rounded-lg border text-sm font-semibold hover:bg-gray-50 disabled:opacity-50">
+                {qrCopied ? 'Copied!' : 'Copy link'}
+              </button>
+              <a
+                href={qrData?.qrPngDataUrl}
+                download={`checkin-qr-${qrSession.id}.png`}
+                className={`px-3 py-2 rounded-lg border text-sm font-semibold text-center hover:bg-gray-50 ${!qrData ? 'opacity-50 pointer-events-none' : ''}`}
+              >
+                Download PNG
+              </a>
+              <button onClick={printQr} disabled={!qrData} className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
+                Print
+              </button>
+              <a
+                href={`/attendance/live/${qrSession.id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold text-center hover:bg-indigo-700"
+              >
+                Live Display
+              </a>
+            </div>
+
+            <button
+              onClick={regenerateQr}
+              disabled={qrBusy}
+              className="mt-3 w-full px-3 py-2 rounded-lg border border-red-300 text-red-600 text-xs font-semibold hover:bg-red-50 disabled:opacity-50"
+            >
+              {qrBusy ? 'Working…' : 'Regenerate code (invalidates printed QRs)'}
+            </button>
           </div>
         </div>
       )}

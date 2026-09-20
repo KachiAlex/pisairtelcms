@@ -2345,6 +2345,7 @@ model AttendanceSession {
   location  String?
   notes     String?
   headcount Json? // { total, men, women, children, firstTimers }
+  qrToken   String?            @unique // unguessable token printed/displayed as check-in QR
   createdBy String
   creator   User               @relation("AttendanceCreatedBy", fields: [createdBy], references: [id])
   createdAt DateTime           @default(now())

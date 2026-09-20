@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { generateQrToken } from '@/lib/attendance-qr'
 
 export type AttendanceSessionType = 'SERVICE' | 'MEETING'
 export type AttendanceMode = 'OFFLINE' | 'ONLINE' | 'HYBRID'
@@ -16,6 +17,7 @@ export interface AttendanceSession {
   location?: string | null
   notes?: string | null
   headcount?: any
+  qrToken?: string | null
   createdBy: string
   createdAt: Date
   updatedAt: Date
@@ -54,6 +56,7 @@ export class AttendanceService {
         location: data.location ?? null,
         notes: data.notes ?? null,
         headcount: data.headcount || null,
+        qrToken: generateQrToken(),
         createdBy: data.createdBy,
       },
     })
@@ -125,14 +128,85 @@ export class AttendanceService {
       where: { sessionId },
       take: limit,
       orderBy: { checkedInAt: 'desc' },
+      include: { user: { select: { firstName: true, lastName: true } } },
     })
     return records as unknown as AttendanceRecord[]
+  }
+
+  static async findSessionByQrToken(qrToken: string): Promise<(AttendanceSession & { church?: { name: string } }) | null> {
+    const record = await prisma.attendanceSession.findUnique({
+      where: { qrToken },
+      include: { church: { select: { name: true } } },
+    })
+    return (record as unknown as AttendanceSession & { church?: { name: string } }) || null
+  }
+
+  /** Returns the session's QR token, generating one for legacy sessions. */
+  static async ensureQrToken(sessionId: string): Promise<string | null> {
+    const session = await prisma.attendanceSession.findUnique({
+      where: { id: sessionId },
+      select: { qrToken: true },
+    })
+    if (!session) return null
+    if (session.qrToken) return session.qrToken
+    const updated = await prisma.attendanceSession.update({
+      where: { id: sessionId },
+      data: { qrToken: generateQrToken() },
+      select: { qrToken: true },
+    })
+    return updated.qrToken
+  }
+
+  /** Mints a fresh token — invalidates previously printed QR codes. */
+  static async regenerateQrToken(sessionId: string): Promise<string> {
+    const updated = await prisma.attendanceSession.update({
+      where: { id: sessionId },
+      data: { qrToken: generateQrToken() },
+      select: { qrToken: true },
+    })
+    return updated.qrToken as string
   }
 
   static async countRecordsBySession(sessionId: string): Promise<number> {
     return prisma.attendanceRecord.count({
       where: { sessionId },
     })
+  }
+
+  /**
+   * Resolves the attendance channel from the session mode.
+   * HYBRID sessions accept an explicit request; other modes are forced.
+   */
+  static channelForSession(session: AttendanceSession, requested?: string): string {
+    const mode = (session.mode || '').toUpperCase()
+    if (mode === 'ONLINE') return 'ONLINE'
+    if (mode === 'OFFLINE') return 'OFFLINE'
+    // HYBRID — the scanner chooses; default to ONLINE for the displayed QR case
+    return requested === 'OFFLINE' ? 'OFFLINE' : 'ONLINE'
+  }
+
+  /**
+   * Check in via QR scan. Members dedupe on userId; guests are keyed only by
+   * name so duplicates are possible (the client sets a cookie to smooth UX).
+   */
+  static async qrCheckIn(
+    session: AttendanceSession,
+    opts: { userId?: string | null; guestName?: string | null; channel?: string },
+  ): Promise<{ record: AttendanceRecord; alreadyCheckedIn: boolean }> {
+    if (opts.userId) {
+      const existing = await this.findRecordBySessionAndUser(session.id, opts.userId)
+      if (existing) return { record: existing, alreadyCheckedIn: true }
+    }
+
+    const record = await this.checkIn({
+      churchId: session.churchId,
+      branchId: session.branchId || undefined,
+      sessionId: session.id,
+      userId: opts.userId || undefined,
+      guestName: opts.userId ? undefined : opts.guestName || undefined,
+      channel: this.channelForSession(session, opts.channel),
+    })
+    return { record, alreadyCheckedIn: false }
   }
 
   /**
