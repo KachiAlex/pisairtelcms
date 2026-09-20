@@ -32,6 +32,8 @@ services:
       SHADOW_DATABASE_URL: postgresql://picms:${POSTGRES_PASSWORD:-picms_secure_pass_2026}@pi-cms-db:5432/picms_shadow?schema=public
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://162.35.104.28}
       JITSI_PUBLIC_URL: ${JITSI_PUBLIC_URL:-https://meet.jit.si}
+      JITSI_APP_ID: ${JITSI_APP_ID:-pisairtelcms}
+      JITSI_APP_SECRET: ${JITSI_APP_SECRET:-}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-picms_nextauth_secret_2026_change_me}
       NODE_ENV: production
       # AI
