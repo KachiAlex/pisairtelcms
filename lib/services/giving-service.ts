@@ -106,9 +106,26 @@ export class GivingService {
   static async getTotalByUser(userId: string): Promise<number> {
     const result = await prisma.giving.aggregate({
       _sum: { amount: true },
-      where: { userId },
+      where: { userId, status: 'CONFIRMED' },
     })
     return result._sum?.amount || 0
+  }
+
+  /** Pending bank-transfer donations awaiting admin review. */
+  static async findPendingByChurch(churchId: string, branchId?: string | null): Promise<any[]> {
+    return prisma.giving.findMany({
+      where: {
+        churchId,
+        status: 'PENDING',
+        ...(branchId ? { branchId } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      include: {
+        user: { select: { firstName: true, lastName: true, email: true } },
+        project: { select: { name: true } },
+      },
+    })
   }
 
   static async getGivingStreak(userId: string): Promise<number> {

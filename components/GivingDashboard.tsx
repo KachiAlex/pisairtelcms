@@ -8,6 +8,7 @@ interface GivingRecord {
   id: string
   amount: number
   type: string
+  status?: string
   createdAt: string
   project?: {
     id: string
@@ -107,6 +108,9 @@ export default function GivingDashboard() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                   Project
                 </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Status
+                </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
                   Amount
                 </th>
@@ -115,7 +119,7 @@ export default function GivingDashboard() {
             <tbody className="bg-white divide-y divide-gray-200">
               {giving.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
                     No giving history yet
                   </td>
                 </tr>
@@ -132,6 +136,15 @@ export default function GivingDashboard() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {record.project?.name || '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {record.status === 'PENDING' ? (
+                        <span className="px-2 py-1 bg-amber-100 text-amber-800 rounded text-xs font-medium">Pending review</span>
+                      ) : record.status === 'REJECTED' ? (
+                        <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-medium">Rejected</span>
+                      ) : (
+                        <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">Confirmed</span>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       {formatCurrency(record.amount)}

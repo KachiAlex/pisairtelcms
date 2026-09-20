@@ -42,9 +42,50 @@ export default function GivingProjects({ isAdmin = false }: GivingProjectsProps)
   })
   const [submitting, setSubmitting] = useState(false)
   const [paymentMessage, setPaymentMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null)
+  const [pendingDonations, setPendingDonations] = useState<any[]>([])
+  const [reviewingId, setReviewingId] = useState<string | null>(null)
+
+  const showToast = (message: string, tone: 'success' | 'error' = 'success') => {
+    setToast({ message, tone })
+    setTimeout(() => setToast(null), 5000)
+  }
+
+  const loadPending = async () => {
+    if (!isAdmin) return
+    try {
+      const res = await fetch('/api/giving/pending', { cache: 'no-store' })
+      if (res.ok) {
+        const json = await res.json()
+        setPendingDonations(json.pending || [])
+      }
+    } catch {
+      // non-blocking
+    }
+  }
+
+  const reviewDonation = async (givingId: string, action: 'confirm' | 'reject') => {
+    setReviewingId(givingId)
+    try {
+      const res = await fetch(`/api/giving/${givingId}/review`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.error || 'Review failed')
+      showToast(action === 'confirm' ? 'Donation confirmed and recorded as income' : 'Donation rejected')
+      await Promise.all([loadPending(), loadProjects()])
+    } catch (e: any) {
+      showToast(e?.message || 'Review failed', 'error')
+    } finally {
+      setReviewingId(null)
+    }
+  }
 
   useEffect(() => {
     loadProjects()
+    loadPending()
     
     // Check for payment callback messages
     const success = searchParams?.get('success')
@@ -89,10 +130,16 @@ export default function GivingProjects({ isAdmin = false }: GivingProjectsProps)
     setShowDonateModal(true)
   }
 
-  const handleDonationSuccess = () => {
+  const handleDonationSuccess = (info?: { pending?: boolean }) => {
     setShowDonateModal(false)
     setSelectedProject(null)
+    showToast(
+      info?.pending
+        ? 'Donation recorded — it will appear as income once the transfer is confirmed.'
+        : 'Thank you! Your donation has been recorded.'
+    )
     loadProjects()
+    loadPending()
   }
 
   const handleCreateProject = async (e: React.FormEvent) => {
@@ -172,6 +219,54 @@ export default function GivingProjects({ isAdmin = false }: GivingProjectsProps)
         )}
       </div>
 
+      {/* Pending bank-transfer donations — admin review */}
+      {isAdmin && pendingDonations.length > 0 && (
+        <div className="mb-6 bg-amber-50 border border-amber-200 rounded-lg p-5">
+          <h2 className="text-lg font-semibold text-amber-900 mb-1">
+            Pending donations ({pendingDonations.length})
+          </h2>
+          <p className="text-sm text-amber-800 mb-4">
+            Bank transfers awaiting confirmation — confirm to count them as income.
+          </p>
+          <div className="space-y-3">
+            {pendingDonations.map((d) => (
+              <div key={d.id} className="bg-white rounded-lg border border-amber-200 p-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">
+                    {d.user ? `${d.user.firstName} ${d.user.lastName}` : 'Member'} — {d.type}
+                  </div>
+                  <div className="text-xs text-gray-600 mt-0.5">
+                    {formatCurrency(d.amount, d.currency || 'NGN')} • {new Date(d.createdAt).toLocaleString()}
+                    {d.project?.name ? ` • ${d.project.name}` : ''}
+                  </div>
+                  {d.transferReceiptUrl && (
+                    <a href={d.transferReceiptUrl} target="_blank" rel="noreferrer" className="text-xs text-primary-600 underline mt-1 inline-block">
+                      View receipt
+                    </a>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => reviewDonation(d.id, 'confirm')}
+                    disabled={reviewingId === d.id}
+                    className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    onClick={() => reviewDonation(d.id, 'reject')}
+                    disabled={reviewingId === d.id}
+                    className="px-3 py-1.5 border border-red-300 text-red-600 text-xs font-semibold rounded-lg hover:bg-red-50 disabled:opacity-50"
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Payment Success/Error Messages */}
       {paymentMessage && (
         <div
@@ -249,6 +344,24 @@ export default function GivingProjects({ isAdmin = false }: GivingProjectsProps)
       {projects.length === 0 && (
         <div className="bg-white rounded-lg shadow p-8 text-center">
           <p className="text-gray-600">No active projects at this time.</p>
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div
+          className={`fixed top-6 right-6 z-[70] flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium text-white shadow-lg ${
+            toast.tone === 'success' ? 'bg-emerald-600' : 'bg-rose-600'
+          }`}
+        >
+          <span>{toast.message}</span>
+          <button
+            type="button"
+            className="text-white/80 transition hover:text-white"
+            onClick={() => setToast(null)}
+          >
+            ×
+          </button>
         </div>
       )}
 

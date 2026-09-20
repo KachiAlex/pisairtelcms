@@ -14,7 +14,7 @@ interface Project {
 interface DonateModalProps {
   project?: Project
   onClose: () => void
-  onSuccess: () => void
+  onSuccess: (info?: { pending?: boolean }) => void
 }
 
 export default function DonateModal({
@@ -109,7 +109,7 @@ export default function DonateModal({
           throw new Error(errorData.error || 'Failed to submit bank transfer donation')
         }
 
-        onSuccess()
+        onSuccess({ pending: true })
         return
       }
 
