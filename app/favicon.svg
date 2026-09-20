@@ -6,5 +6,9 @@
     </linearGradient>
   </defs>
   <rect x="0" y="0" width="64" height="64" rx="14" fill="url(#g)"/>
-  <image href="/ecclesia%20logo.svg" x="10" y="10" width="44" height="44" preserveAspectRatio="xMidYMid meet"/>
+  <g fill="#ffffff">
+    <rect x="14" y="16" width="36" height="9" rx="2.5"/>
+    <rect x="20" y="22" width="9" height="30" rx="2.5"/>
+    <rect x="35" y="22" width="9" height="30" rx="2.5"/>
+  </g>
 </svg>

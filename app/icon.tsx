@@ -23,29 +23,40 @@ export default function Icon() {
           borderRadius: 112,
         }}
       >
-        <div
-          style={{
-            width: 380,
-            height: 380,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'rgba(255,255,255,0.12)',
-            borderRadius: 96,
-          }}
-        >
+        <div style={{ position: 'relative', width: 512, height: 512, display: 'flex' }}>
           <div
             style={{
-              fontSize: 240,
-              fontWeight: 800,
-              color: 'white',
-              fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial',
-              lineHeight: 1,
-              transform: 'translateY(8px)',
+              position: 'absolute',
+              left: 112,
+              top: 128,
+              width: 288,
+              height: 72,
+              borderRadius: 20,
+              background: 'white',
             }}
-          >
-            E
-          </div>
+          />
+          <div
+            style={{
+              position: 'absolute',
+              left: 160,
+              top: 160,
+              width: 72,
+              height: 256,
+              borderRadius: 20,
+              background: 'white',
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              left: 280,
+              top: 160,
+              width: 72,
+              height: 256,
+              borderRadius: 20,
+              background: 'white',
+            }}
+          />
         </div>
       </div>
     ),
