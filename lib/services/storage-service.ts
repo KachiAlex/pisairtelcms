@@ -323,18 +323,21 @@ export class StorageService {
     file: File | Buffer,
     contentType?: string,
   ): Promise<{ data: Buffer; contentType: string }> {
-    if (typeof File !== 'undefined' && file instanceof File) {
-      const arrayBuffer = await file.arrayBuffer()
-      return {
-        data: Buffer.from(arrayBuffer),
-        contentType: contentType || file.type || 'application/octet-stream',
-      }
-    }
-
     if (Buffer.isBuffer(file)) {
       return {
         data: file,
         contentType: contentType || 'application/octet-stream',
+      }
+    }
+
+    // Node 18 has no global `File`, so `instanceof File` fails for undici
+    // FormData files. Duck-type on arrayBuffer() instead — covers File/Blob
+    // across Node versions.
+    if (file && typeof (file as Blob).arrayBuffer === 'function') {
+      const arrayBuffer = await (file as Blob).arrayBuffer()
+      return {
+        data: Buffer.from(arrayBuffer),
+        contentType: contentType || (file as File).type || 'application/octet-stream',
       }
     }
 

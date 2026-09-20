@@ -40,19 +40,21 @@ export async function POST(
     const formData = await request.formData()
     const file = formData.get('file')
 
-    if (!(file instanceof File)) {
+    // Node 18 has no global `File`; duck-type on arrayBuffer() instead
+    if (!file || typeof (file as Blob).arrayBuffer !== 'function') {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
 
-    if (!file.type?.startsWith('image/')) {
+    const uploadedFile = file as File
+    if (!uploadedFile.type?.startsWith('image/')) {
       return NextResponse.json({ error: 'File must be an image' }, { status: 400 })
     }
 
-    if (file.size > MAX_FILE_SIZE) {
+    if (uploadedFile.size > MAX_FILE_SIZE) {
       return NextResponse.json({ error: 'File size must be less than 5MB' }, { status: 400 })
     }
 
-    const upload = await StorageService.uploadImage(file, {
+    const upload = await StorageService.uploadImage(uploadedFile, {
       userId,
       churchId,
       folder: `branding/logos/${churchId}`,
