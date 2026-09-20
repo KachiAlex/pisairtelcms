@@ -55,8 +55,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Type is required' }, { status: 400 })
     }
 
-    if (!receipt || typeof receipt === 'string' || (receipt as File).size <= 0) {
-      return NextResponse.json({ error: 'Transfer receipt is required' }, { status: 400 })
+    const receiptFile = receipt && typeof receipt !== 'string' ? receipt as File : null
+    if (receiptFile && receiptFile.size <= 0) {
+      return NextResponse.json({ error: 'Transfer receipt file is empty' }, { status: 400 })
+    }
+    if (receiptFile && receiptFile.size > 10 * 1024 * 1024) {
+      return NextResponse.json({ error: 'Transfer receipt must be 10MB or smaller' }, { status: 400 })
+    }
+    if (receiptFile && !['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(receiptFile.type)) {
+      return NextResponse.json({ error: 'Transfer receipt must be a PDF, JPG, PNG, or WebP image' }, { status: 400 })
     }
 
     // Verify project if provided
@@ -96,17 +103,18 @@ export async function POST(request: Request) {
 
     let transferReceiptUrl: string | undefined
 
-    const file = receipt as File
-    const upload = await StorageService.uploadFile({
-      file,
-      fileName: `bank-transfer-receipt-${giving.id}-${file.name || 'receipt'}`,
-      folder: 'bank-transfer-receipts',
-      userId,
-      churchId: church.id,
-      contentType: file.type || undefined,
-    })
-    transferReceiptUrl = upload.url
-    await GivingService.update(giving.id, { transferReceiptUrl } as any)
+    if (receiptFile) {
+      const upload = await StorageService.uploadFile({
+        file: receiptFile,
+        fileName: `bank-transfer-receipt-${giving.id}-${receiptFile.name || 'receipt'}`,
+        folder: 'bank-transfer-receipts',
+        userId,
+        churchId: church.id,
+        contentType: receiptFile.type,
+      })
+      transferReceiptUrl = upload.url
+      await GivingService.update(giving.id, { transferReceiptUrl } as any)
+    }
 
     return NextResponse.json(
       {

@@ -37,27 +37,37 @@ export async function GET(
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
 
-    const uploadDir = StorageService.getUploadDir()
     const relPath = normalize(segments.join('/')).replace(/^(\.\.(\/|\\|$))+/, '')
-    const absPath = join(uploadDir, relPath)
-
-    // Guard against path traversal outside the upload root
-    if (!absPath.startsWith(normalize(uploadDir))) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-
-    const info = await stat(absPath).catch(() => null)
-    if (!info || !info.isFile()) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-
-    const ext = extname(absPath).toLowerCase()
+    const ext = extname(relPath).toLowerCase()
     const contentType = CONTENT_TYPES[ext] || 'application/octet-stream'
-    const stream = Readable.toWeb(createReadStream(absPath)) as ReadableStream
+    let stream: ReadableStream | Uint8Array
+    let contentLength: number | undefined
+
+    if (StorageService.isR2Configured()) {
+      const object = await StorageService.getR2Object(relPath)
+      if (!object) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      stream = object.body
+      contentLength = object.contentLength
+    } else {
+      const uploadDir = StorageService.getUploadDir()
+      const absPath = join(uploadDir, relPath)
+
+      // Guard against path traversal outside the upload root
+      if (!absPath.startsWith(normalize(uploadDir))) {
+        return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      }
+
+      const info = await stat(absPath).catch(() => null)
+      if (!info || !info.isFile()) {
+        return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      }
+      stream = Readable.toWeb(createReadStream(absPath)) as ReadableStream
+      contentLength = info.size
+    }
 
     const headers: Record<string, string> = {
       'Content-Type': contentType,
-      'Content-Length': String(info.size),
+      ...(contentLength !== undefined ? { 'Content-Length': String(contentLength) } : {}),
       'Cache-Control': 'public, max-age=31536000, immutable',
     }
     // SVGs can carry scripts — serve them sandboxed so they can't execute
@@ -65,7 +75,16 @@ export async function GET(
       headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'"
     }
 
-    return new NextResponse(stream, { headers })
+    const responseBody = stream instanceof Uint8Array
+      ? new ReadableStream({
+          start(controller) {
+            controller.enqueue(stream)
+            controller.close()
+          },
+        })
+      : stream
+
+    return new NextResponse(responseBody, { headers })
   } catch (error) {
     console.error('File serve error:', error)
     return NextResponse.json({ error: 'Not found' }, { status: 404 })

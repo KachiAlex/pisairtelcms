@@ -7,6 +7,7 @@
 
 import { mkdir, writeFile, unlink, stat } from 'fs/promises'
 import { join, normalize, extname } from 'path'
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import sharp from 'sharp'
 
 interface UploadOptions {
@@ -27,10 +28,33 @@ interface OptimizedImage {
 }
 
 export class StorageService {
-  /**
-   * Resolve the upload root directory. Kept in sync with the
-   * /api/files/[...path] serving route.
-   */
+  private static r2Client: S3Client | null = null
+
+  /** R2 is opt-in until all production credentials are configured. */
+  static isR2Configured(): boolean {
+    return Boolean(
+      process.env.R2_ENDPOINT &&
+      process.env.R2_BUCKET &&
+      process.env.R2_ACCESS_KEY_ID &&
+      process.env.R2_SECRET_ACCESS_KEY
+    )
+  }
+
+  private static getR2Client(): S3Client {
+    if (!this.isR2Configured()) throw new Error('Cloudflare R2 is not configured')
+    if (!this.r2Client) {
+      this.r2Client = new S3Client({
+        region: 'auto',
+        endpoint: process.env.R2_ENDPOINT,
+        credentials: {
+          accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+          secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+        },
+      })
+    }
+    return this.r2Client
+  }
+
   static getUploadDir(): string {
     return process.env.UPLOAD_DIR || '/app/uploads'
   }
@@ -40,14 +64,25 @@ export class StorageService {
    */
   static async uploadFile(options: UploadOptions): Promise<{ url: string; path: string }> {
     try {
-      const { data } = await this.prepareBody(options.file)
+      const { data, contentType } = await this.prepareBody(options.file, options.contentType)
       const filePath = this.buildFilePath(options)
-      const absPath = join(this.getUploadDir(), filePath)
 
-      await mkdir(join(absPath, '..'), { recursive: true })
-      await writeFile(absPath, data)
+      if (this.isR2Configured()) {
+        await this.getR2Client().send(new PutObjectCommand({
+          Bucket: process.env.R2_BUCKET!,
+          Key: filePath,
+          Body: data,
+          ContentType: contentType,
+        }))
+      } else {
+        const absPath = join(this.getUploadDir(), filePath)
+        await mkdir(join(absPath, '..'), { recursive: true })
+        await writeFile(absPath, data)
+      }
 
       return {
+        // Both backends use the same application proxy, so callers and DB
+        // records do not change when storage is migrated from disk to R2.
         url: `/api/files/${filePath}`,
         path: filePath,
       }
@@ -223,13 +258,48 @@ export class StorageService {
     try {
       if (!filePath) return
       const target = this.normalizePath(filePath)
-      const absPath = join(this.getUploadDir(), target)
-      await unlink(absPath)
+      if (this.isR2Configured()) {
+        await this.getR2Client().send(new DeleteObjectCommand({
+          Bucket: process.env.R2_BUCKET!,
+          Key: target,
+        }))
+      } else {
+        const absPath = join(this.getUploadDir(), target)
+        await unlink(absPath)
+      }
     } catch (error: any) {
       // Missing files are fine — treat as already deleted
       if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return
       console.error('Error deleting file:', error)
       throw new Error(`File deletion failed: ${error.message}`)
+    }
+  }
+
+  /** Stream an object from R2 for the existing /api/files proxy. */
+  static async getR2Object(filePath: string): Promise<{
+    body: ReadableStream | Uint8Array
+    contentType?: string
+    contentLength?: number
+  } | null> {
+    if (!this.isR2Configured()) return null
+    try {
+      const target = this.normalizePath(filePath)
+      const result = await this.getR2Client().send(new GetObjectCommand({
+        Bucket: process.env.R2_BUCKET!,
+        Key: target,
+      }))
+      if (!result.Body) return null
+      const body = result.Body as any
+      return {
+        body: typeof body.transformToWebStream === 'function'
+          ? body.transformToWebStream()
+          : await body.transformToByteArray(),
+        contentType: result.ContentType,
+        contentLength: result.ContentLength,
+      }
+    } catch (error: any) {
+      if (error?.name === 'NoSuchKey' || error?.$metadata?.httpStatusCode === 404) return null
+      throw error
     }
   }
 
@@ -240,6 +310,7 @@ export class StorageService {
     try {
       if (!filePath) return null
       const target = this.normalizePath(filePath)
+      if (this.isR2Configured()) return `/api/files/${target}`
       const absPath = join(this.getUploadDir(), target)
       await stat(absPath)
       return `/api/files/${target}`
