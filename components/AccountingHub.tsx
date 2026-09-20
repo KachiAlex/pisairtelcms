@@ -14,8 +14,23 @@ type LedgerItem = {
   currency?: string
   amount: number
   title: string
+  account: string
   date: string
+  runningBalance?: number
+  pending?: boolean
   meta?: any
+}
+
+type CurrencySheet = {
+  income: number
+  paidExpenses: number
+  pendingExpenses: number
+  cash: number
+  liabilities: number
+  netAssets: number
+  incomeByFund: Record<string, number>
+  expensesByCategory: Record<string, number>
+  payablesByCategory: Record<string, number>
 }
 
 type Expense = {
@@ -39,9 +54,16 @@ export default function AccountingHub({ isAdmin }: { isAdmin: boolean }) {
   const [end, setEnd] = useState<string>('')
 
   const [ledger, setLedger] = useState<LedgerItem[]>([])
-  const [totals, setTotals] = useState<{ income: number; expenses: number; net: number } | null>(null)
+  const [accounts, setAccounts] = useState<string[]>([])
+  const [accountFilter, setAccountFilter] = useState('')
+  const [openingBalance, setOpeningBalance] = useState<Record<string, number>>({})
+  const [closingBalance, setClosingBalance] = useState<Record<string, number>>({})
+  const [totals, setTotals] = useState<{ income: number; expenses: number; pendingExpenses?: number; net: number } | null>(null)
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null)
+
+  const [asOf, setAsOf] = useState<string>(new Date().toISOString().slice(0, 10))
+  const [balanceSheet, setBalanceSheet] = useState<Record<string, CurrencySheet>>({})
 
   const [incomeSaving, setIncomeSaving] = useState(false)
   const [incomeForm, setIncomeForm] = useState({
@@ -111,6 +133,13 @@ export default function AccountingHub({ isAdmin }: { isAdmin: boolean }) {
     return s ? `?${s}` : ''
   }, [branchId, start, end])
 
+  const ledgerQueryString = useMemo(() => {
+    const qs = new URLSearchParams(queryString)
+    qs.set('view', 'ledger')
+    if (accountFilter) qs.set('account', accountFilter)
+    return `?${qs.toString()}`
+  }, [queryString, accountFilter])
+
   async function readApiError(res: Response) {
     try {
       const json = await res.json()
@@ -147,7 +176,7 @@ export default function AccountingHub({ isAdmin }: { isAdmin: boolean }) {
     setError(null)
     try {
       const [ledgerRes, expensesRes] = await Promise.all([
-        fetch(`/api/accounting/ledger${queryString}`, { cache: 'no-store' }),
+        fetch(`/api/accounting/ledger${ledgerQueryString}`, { cache: 'no-store' }),
         fetch(`/api/accounting/expenses${queryString}`, { cache: 'no-store' }),
       ])
 
@@ -158,6 +187,9 @@ export default function AccountingHub({ isAdmin }: { isAdmin: boolean }) {
       const expensesJson = await expensesRes.json()
 
       setLedger(ledgerJson.items || [])
+      setAccounts(ledgerJson.accounts || [])
+      setOpeningBalance(ledgerJson.openingBalance || {})
+      setClosingBalance(ledgerJson.closingBalance || {})
       setTotals(ledgerJson.totals || null)
       setExpenses((expensesJson.expenses || []).map((e: any) => ({
         id: e.id,
@@ -173,7 +205,21 @@ export default function AccountingHub({ isAdmin }: { isAdmin: boolean }) {
     } finally {
       setLoading(false)
     }
-  }, [queryString])
+  }, [queryString, ledgerQueryString])
+
+  const loadBalanceSheet = useCallback(async () => {
+    try {
+      const qs = new URLSearchParams()
+      if (branchId.trim()) qs.set('branchId', branchId.trim())
+      if (asOf) qs.set('asOf', new Date(asOf).toISOString())
+      const res = await fetch(`/api/accounting/balance-sheet?${qs.toString()}`, { cache: 'no-store' })
+      if (!res.ok) throw new Error(await readApiError(res))
+      const json = await res.json()
+      setBalanceSheet(json.currencies || {})
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load balance sheet')
+    }
+  }, [branchId, asOf])
 
   const downloadFile = (blob: Blob, filename: string) => {
     const url = window.URL.createObjectURL(blob)
@@ -213,6 +259,10 @@ export default function AccountingHub({ isAdmin }: { isAdmin: boolean }) {
     loadBranches()
     loadAll()
   }, [loadAll, loadBranches])
+
+  useEffect(() => {
+    loadBalanceSheet()
+  }, [loadBalanceSheet])
 
   async function createExpense() {
     if (!branchId.trim()) {
@@ -375,23 +425,121 @@ export default function AccountingHub({ isAdmin }: { isAdmin: boolean }) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border p-4">
           <div className="text-xs font-semibold text-gray-600">Total Income</div>
-          <div className="text-2xl font-bold mt-1">{totals?.income ?? 0}</div>
+          <div className="text-2xl font-bold mt-1">{numberFormatter.format(totals?.income ?? 0)}</div>
         </div>
         <div className="bg-white rounded-xl border p-4">
           <div className="text-xs font-semibold text-gray-600">Total Expenses</div>
-          <div className="text-2xl font-bold mt-1">{totals?.expenses ?? 0}</div>
+          <div className="text-2xl font-bold mt-1">{numberFormatter.format(totals?.expenses ?? 0)}</div>
+          {totals?.pendingExpenses ? (
+            <div className="text-xs text-amber-600 mt-0.5">+{numberFormatter.format(totals.pendingExpenses)} unpaid</div>
+          ) : null}
         </div>
         <div className="bg-white rounded-xl border p-4">
           <div className="text-xs font-semibold text-gray-600">Net</div>
-          <div className="text-2xl font-bold mt-1">{totals?.net ?? 0}</div>
+          <div className="text-2xl font-bold mt-1">{numberFormatter.format(totals?.net ?? 0)}</div>
         </div>
+      </div>
+
+      <div className="bg-white rounded-xl border p-5 space-y-4">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h2 className="text-lg font-semibold">Balance Sheet</h2>
+            <p className="text-sm text-gray-600">Cumulative financial position — assets, liabilities, and net assets.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold text-gray-600">As of</label>
+            <input type="date" className="border rounded-lg px-3 py-1.5 text-sm" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
+          </div>
+        </div>
+
+        {Object.keys(balanceSheet).length === 0 ? (
+          <div className="text-gray-600 text-sm">No activity recorded yet.</div>
+        ) : (
+          Object.entries(balanceSheet).map(([currency, s]) => (
+            <div key={currency} className="rounded-lg border overflow-hidden">
+              <div className="bg-gray-50 px-4 py-2 text-xs font-semibold text-gray-600 flex justify-between">
+                <span>{currency === 'DEFAULT' ? 'Default currency' : currency}</span>
+                <span>Assets − Liabilities = Net Assets</span>
+              </div>
+              <div className="divide-y">
+                <div className="px-4 py-3">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="font-medium text-gray-900">Cash &amp; equivalents</p>
+                      <p className="text-xs text-gray-500">Confirmed income minus paid expenses</p>
+                    </div>
+                    <div className={`text-lg font-semibold ${s.cash >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {numberFormatter.format(s.cash)}
+                    </div>
+                  </div>
+                  <div className="mt-1 text-xs text-gray-500">
+                    Income {numberFormatter.format(s.income)} − Paid expenses {numberFormatter.format(s.paidExpenses)}
+                  </div>
+                </div>
+                <div className="px-4 py-3">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="font-medium text-gray-900">Accounts payable</p>
+                      <p className="text-xs text-gray-500">Expenses recorded but not yet paid</p>
+                    </div>
+                    <div className="text-lg font-semibold text-amber-600">
+                      {numberFormatter.format(s.liabilities)}
+                    </div>
+                  </div>
+                </div>
+                <div className="px-4 py-3 bg-gray-50/50">
+                  <div className="flex justify-between items-center">
+                    <p className="font-semibold text-gray-900">Net assets</p>
+                    <div className={`text-lg font-bold ${s.netAssets >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                      {numberFormatter.format(s.netAssets)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {(Object.keys(s.incomeByFund).length > 0 || Object.keys(s.expensesByCategory).length > 0) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-gray-100 border-t">
+                  <div className="bg-white px-4 py-3">
+                    <div className="text-xs font-semibold text-gray-600 mb-1.5">Income by fund</div>
+                    {Object.entries(s.incomeByFund).sort((a, b) => b[1] - a[1]).map(([fund, amt]) => (
+                      <div key={fund} className="flex justify-between text-xs py-0.5">
+                        <span className="text-gray-600">{fund}</span>
+                        <span className="font-medium">{numberFormatter.format(amt)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="bg-white px-4 py-3">
+                    <div className="text-xs font-semibold text-gray-600 mb-1.5">Expenses by category</div>
+                    {Object.entries(s.expensesByCategory).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => (
+                      <div key={cat} className="flex justify-between text-xs py-0.5">
+                        <span className="text-gray-600">{cat}</span>
+                        <span className="font-medium">{numberFormatter.format(amt)}</span>
+                      </div>
+                    ))}
+                    {Object.keys(s.payablesByCategory).length > 0 && (
+                      <>
+                        <div className="text-xs font-semibold text-amber-700 mt-2 mb-1">Payables (unpaid)</div>
+                        {Object.entries(s.payablesByCategory).map(([cat, amt]) => (
+                          <div key={cat} className="flex justify-between text-xs py-0.5">
+                            <span className="text-gray-600">{cat}</span>
+                            <span className="font-medium text-amber-700">{numberFormatter.format(amt)}</span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))
+        )}
       </div>
 
       <div className="bg-white rounded-xl border p-5 space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-lg font-semibold">Balance Sheet</h2>
-            <p className="text-sm text-gray-600">Live snapshot of income versus expenses for this filter range.</p>
+            <h2 className="text-lg font-semibold">Period Activity</h2>
+            <p className="text-sm text-gray-600">Income versus expenses for this filter range.</p>
           </div>
           <div className="text-xs text-gray-500">
             Updated {new Date().toLocaleDateString()}
@@ -514,49 +662,104 @@ export default function AccountingHub({ isAdmin }: { isAdmin: boolean }) {
         </div>
 
         <div className="bg-white rounded-xl border p-5">
-          <h2 className="text-lg font-semibold mb-3">Ledger</h2>
+          <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+            <h2 className="text-lg font-semibold">Ledger</h2>
+            <select
+              className="border rounded-lg px-3 py-1.5 text-xs"
+              value={accountFilter}
+              onChange={(e) => setAccountFilter(e.target.value)}
+            >
+              <option value="">All accounts</option>
+              {accounts.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+          </div>
           {loading ? (
             <div className="text-gray-600">Loading...</div>
           ) : (
-            <div className="space-y-2 max-h-[520px] overflow-auto">
-              {ledger.length === 0 ? (
-                <div className="text-gray-600">No ledger items for this filter.</div>
-              ) : (
-                ledger.map((it) => (
-                  <div key={`${it.kind}_${it.id}`} className="flex items-start justify-between gap-3 border rounded-lg p-3">
-                    <div>
-                      <div className="text-sm font-semibold">{it.title}</div>
-                      <div className="text-xs text-gray-600">{new Date(it.date).toLocaleString()} {it.branchId ? `• Branch: ${it.branchId}` : ''}</div>
-
-                      {it.kind === 'income' && it.meta?.source && (
-                        <div className="mt-1 flex items-center gap-2 flex-wrap">
-                          <span className={`text-xs px-2 py-0.5 rounded-full border ${it.meta.source === 'GIVING' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
-                            {it.meta.source}
-                          </span>
-                          {it.meta?.attachmentUrl && (
-                            <a className="text-xs underline text-gray-700" href={it.meta.attachmentUrl} target="_blank" rel="noreferrer">
-                              Receipt
-                            </a>
-                          )}
-                          {it.meta?.voidsIncomeId && (
-                            <span className="text-xs px-2 py-0.5 rounded-full border bg-gray-50 text-gray-700 border-gray-200">
-                              Reversal
-                            </span>
-                          )}
-                          {it.meta.source === 'MANUAL' && it.amount > 0 && !voidedIds.has(it.id) && (
-                            <button type="button" onClick={() => voidManualIncome(it.id)} className="text-xs px-2 py-1 rounded-lg border hover:bg-gray-50">
-                              Void
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <div className={`text-sm font-bold ${it.kind === 'income' ? 'text-green-700' : 'text-red-700'}`}>
-                      {it.kind === 'income' ? '+' : '-'}{it.amount} {it.currency || ''}
-                    </div>
-                  </div>
-                ))
-              )}
+            <div className="max-h-[560px] overflow-auto border rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs text-gray-600 sticky top-0">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-semibold">Date</th>
+                    <th className="text-left px-3 py-2 font-semibold">Description</th>
+                    <th className="text-left px-3 py-2 font-semibold">Account</th>
+                    <th className="text-right px-3 py-2 font-semibold">Debit</th>
+                    <th className="text-right px-3 py-2 font-semibold">Credit</th>
+                    <th className="text-right px-3 py-2 font-semibold">Balance</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {Object.keys(openingBalance).length > 0 && (
+                    <tr className="bg-gray-50/60">
+                      <td className="px-3 py-2 text-xs text-gray-500" colSpan={5}>Opening balance</td>
+                      <td className="px-3 py-2 text-right text-xs font-semibold text-gray-700">
+                        {Object.entries(openingBalance).map(([c, v]) => (
+                          <div key={c}>{numberFormatter.format(v)} {c === 'DEFAULT' ? '' : c}</div>
+                        ))}
+                      </td>
+                    </tr>
+                  )}
+                  {ledger.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-6 text-center text-gray-500">No ledger items for this filter.</td>
+                    </tr>
+                  ) : (
+                    ledger.map((it) => (
+                      <tr key={`${it.kind}_${it.id}`} className={it.pending ? 'bg-amber-50/40' : ''}>
+                        <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">
+                          {new Date(it.date).toLocaleDateString()}
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="text-sm">{it.title}</div>
+                          <div className="mt-0.5 flex items-center gap-1.5 flex-wrap">
+                            {it.pending && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200">PENDING</span>
+                            )}
+                            {it.kind === 'income' && it.meta?.source && (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${it.meta.source === 'GIVING' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
+                                {it.meta.source}
+                              </span>
+                            )}
+                            {it.meta?.attachmentUrl && (
+                              <a className="text-[10px] underline text-gray-600" href={it.meta.attachmentUrl} target="_blank" rel="noreferrer">Receipt</a>
+                            )}
+                            {it.meta?.voidsIncomeId && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-gray-50 text-gray-700 border-gray-200">Reversal</span>
+                            )}
+                            {it.meta?.source === 'MANUAL' && it.amount > 0 && !voidedIds.has(it.id) && (
+                              <button type="button" onClick={() => voidManualIncome(it.id)} className="text-[10px] px-1.5 py-0.5 rounded border hover:bg-gray-50">
+                                Void
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-600">{it.account}</td>
+                        <td className="px-3 py-2 text-right font-medium text-green-700 whitespace-nowrap">
+                          {it.kind === 'income' ? numberFormatter.format(it.amount) : ''}
+                        </td>
+                        <td className="px-3 py-2 text-right font-medium text-red-700 whitespace-nowrap">
+                          {it.kind === 'expense' ? numberFormatter.format(it.amount) : ''}
+                        </td>
+                        <td className="px-3 py-2 text-right text-xs text-gray-700 whitespace-nowrap">
+                          {it.runningBalance !== undefined ? numberFormatter.format(it.runningBalance) : ''}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                  {Object.keys(closingBalance).length > 0 && (
+                    <tr className="bg-gray-50 font-semibold">
+                      <td className="px-3 py-2 text-xs" colSpan={5}>Closing balance</td>
+                      <td className="px-3 py-2 text-right text-xs">
+                        {Object.entries(closingBalance).map(([c, v]) => (
+                          <div key={c}>{numberFormatter.format(v)} {c === 'DEFAULT' ? '' : c}</div>
+                        ))}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

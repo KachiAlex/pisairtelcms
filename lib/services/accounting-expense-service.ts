@@ -61,6 +61,7 @@ export class AccountingExpenseService {
       branchId?: string | null
       startDate?: Date
       endDate?: Date
+      statuses?: string[]
       limit?: number
     }
   ): Promise<AccountingExpense[]> {
@@ -68,6 +69,7 @@ export class AccountingExpenseService {
       where: {
         churchId,
         branchId: options?.branchId ?? undefined,
+        status: options?.statuses ? { in: options.statuses } : undefined,
         date: {
           gte: options?.startDate,
           lte: options?.endDate,
