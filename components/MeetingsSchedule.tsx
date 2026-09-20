@@ -463,7 +463,7 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
                     {o.description && <div className="text-sm text-gray-700 mt-2">{o.description}</div>}
                   {o.jitsi?.joinUrl && (
                     <div className="text-sm mt-2">
-                      <a className="text-primary-700 hover:underline font-semibold" href={o.jitsi.joinUrl} target="_blank" rel="noreferrer">
+                      <a className="text-primary-700 hover:underline font-semibold" href={`/api/meetings/${o.seriesId}/join`} target="_blank" rel="noreferrer">
                         → Join Video Meeting
                       </a>
                     </div>

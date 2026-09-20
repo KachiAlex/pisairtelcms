@@ -12,6 +12,8 @@ type BroadcastCreds = {
   roomName: string
   jitsiBase: string
   jitsiXmppDomain: string
+  jwt: string | null
+  stageJoinUrl: string
   whipUrl: string
   streamKey: string
   streamPath: string
@@ -129,7 +131,7 @@ export default function BroadcastStudio({ livestreamId, title }: { livestreamId:
       JitsiMeetJS.init({ disableAudioLevels: true })
       JitsiMeetJS.setLogLevel(JitsiMeetJS.logLevels?.ERROR ?? 'error')
 
-      const connection = new JitsiMeetJS.JitsiConnection(null, null, {
+      const connection = new JitsiMeetJS.JitsiConnection(null, c.jwt || null, {
         hosts: {
           domain: c.jitsiXmppDomain,
           muc: `muc.${c.jitsiXmppDomain}`,
@@ -313,7 +315,7 @@ export default function BroadcastStudio({ livestreamId, title }: { livestreamId:
         {creds && (
           <a
             className="text-sm text-primary-700 hover:underline font-medium"
-            href={`${creds.jitsiBase}/${creds.roomName}`}
+            href={creds.stageJoinUrl || `${creds.jitsiBase}/${creds.roomName}`}
             target="_blank"
             rel="noreferrer"
           >

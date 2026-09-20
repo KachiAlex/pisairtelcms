@@ -55,7 +55,7 @@ export async function POST(_request: Request, { params }: { params: { id: string
   const guarded = await guardApi({ requireChurch: true, allowedRoles: MANAGE_ROLES })
   if (!guarded.ok) return guarded.response
 
-  const { church } = guarded.ctx
+  const { church, userId, role, session } = guarded.ctx
   const livestream = await getLivestream(params.id, church.id)
   if (!livestream) return NextResponse.json({ error: 'Livestream not found' }, { status: 404 })
 
@@ -66,11 +66,27 @@ export async function POST(_request: Request, { params }: { params: { id: string
   const platform = await ensureJitsiPlatform(livestream)
   const settings = (platform.settings as any) || {}
   const base = JitsiService.baseUrl
+  const sessionUser = session?.user as any
+
+  // Moderator JWTs for both the studio's receive-only connection and the
+  // stage-room link the presenter opens in the Jitsi UI.
+  const jwt = JitsiService.jwtEnabled
+    ? await JitsiService.issueToken(settings.roomName, {
+        id: userId,
+        name: sessionUser?.name,
+        email: sessionUser?.email,
+      }, { moderator: true })
+    : null
+  const stageJoinUrl = JitsiService.jwtEnabled && jwt
+    ? `${base}/${settings.roomName}?jwt=${encodeURIComponent(jwt)}`
+    : `${base}/${settings.roomName}`
 
   return NextResponse.json({
     roomName: settings.roomName,
     jitsiBase: base,
     jitsiXmppDomain: 'meet.jitsi',
+    jwt,
+    stageJoinUrl,
     whipUrl: `${base}/whip/${settings.streamPath}`,
     streamKey: settings.streamKey,
     streamPath: settings.streamPath,
