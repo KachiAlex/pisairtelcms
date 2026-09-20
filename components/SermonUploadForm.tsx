@@ -341,15 +341,15 @@ export default function SermonUploadForm() {
             </div>
 
             <div className="space-y-4">
-              <h3 className="font-semibold text-gray-900">Thumbnail</h3>
+              <h3 className="font-semibold text-gray-900">Thumbnail (optional)</h3>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Thumbnail Image (JPG, PNG)
+                  Thumbnail Image (JPG, PNG, WebP, GIF, SVG)
                 </label>
                 <input
                   ref={thumbnailFileRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
                   onChange={(e) => setThumbnailFile(e.target.files?.[0] || null)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
@@ -390,7 +390,7 @@ export default function SermonUploadForm() {
 
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-6">
           <p className="text-sm text-blue-800">
-            <strong>Tip:</strong> Upload high-quality audio files directly, and paste video embeds for better streaming performance. Thumbnails up to 5MB are supported.
+            <strong>Tip:</strong> A sermon needs at least one media source — a video embed link (YouTube, Vimeo, Telegram, or direct MP4/WebM) <em>or</em> an audio file/URL. Thumbnails are optional (up to 5MB).
           </p>
         </div>
       </div>

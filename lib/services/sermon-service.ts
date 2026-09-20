@@ -81,7 +81,6 @@ export class SermonService {
         downloadsCount: (data as any).downloadsCount ?? 0,
         publishedAt: new Date(),
         createdAt: new Date(),
-        updatedAt: new Date(),
       } as any,
     })
     return fromPrisma(record)
@@ -141,10 +140,7 @@ export class SermonService {
 
     const record = await prisma.sermon.update({
       where: { id },
-      data: {
-        ...updateData,
-        updatedAt: new Date(),
-      } as any,
+      data: { ...updateData } as any,
     })
     return fromPrisma(record)
   }

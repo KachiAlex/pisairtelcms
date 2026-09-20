@@ -33,8 +33,8 @@ export async function POST(request: Request) {
 
     // Validate file type
     const validTypes: Record<string, string[]> = {
-      audio: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/x-m4a'],
-      thumbnail: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'],
+      audio: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm', 'audio/x-m4a', 'audio/m4a', 'audio/mp4', 'audio/aac', 'audio/flac'],
+      thumbnail: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'],
     }
 
     if (!validTypes[type]?.includes(file.type)) {

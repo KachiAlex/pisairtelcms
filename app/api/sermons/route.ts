@@ -132,6 +132,16 @@ export async function POST(request: Request) {
       )
     }
 
+    // A sermon needs at least one playable source: a video embed URL or an
+    // audio URL (the client uploads audio files first, so files arrive as URLs).
+    // Thumbnails are always optional.
+    if (!videoUrl && !audioUrl) {
+      return NextResponse.json(
+        { error: 'Provide at least one media source: a video embed URL or an audio source.' },
+        { status: 400 }
+      )
+    }
+
     const usageCheck = await checkUsageLimit(church.id, 'maxSermons')
     if (!usageCheck.allowed && usageCheck.limit) {
       return NextResponse.json(

@@ -24,10 +24,11 @@ export async function GET(
     }
 
     const userId = (session.user as any).id
+    const userChurchId = (session.user as any).churchId
 
     const sermon = await SermonService.findById(sermonId)
 
-    if (!sermon) {
+    if (!sermon || (userChurchId && sermon.churchId !== userChurchId)) {
       logger.warn('sermons.detail.not_found', { correlationId, sermonId, userId })
       return NextResponse.json(
         { error: 'Sermon not found' },
@@ -115,6 +116,16 @@ export async function PATCH(
     if (body.duration !== undefined) updateData.duration = body.duration ? parseInt(body.duration) : undefined
     if (body.category !== undefined) updateData.category = body.category || undefined
     if (body.tags !== undefined) updateData.tags = Array.isArray(body.tags) ? body.tags : []
+
+    // A sermon must keep at least one playable source after the update.
+    const effectiveVideo = body.videoUrl !== undefined ? body.videoUrl : sermon.videoUrl
+    const effectiveAudio = body.audioUrl !== undefined ? body.audioUrl : sermon.audioUrl
+    if (!effectiveVideo && !effectiveAudio) {
+      return NextResponse.json(
+        { error: 'A sermon must have at least one media source: a video URL or an audio URL.' },
+        { status: 400 }
+      )
+    }
 
     const updated = await SermonService.update(sermonId, updateData)
     logger.info('sermons.update.success', { correlationId, sermonId, userId })
