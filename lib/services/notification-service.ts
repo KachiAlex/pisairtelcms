@@ -37,6 +37,7 @@ export interface CreateNotificationData {
   title: string
   message: string
   actionUrl?: string
+  actionLabel?: string
   link?: string
   icon?: string
   metadata?: Record<string, any>
@@ -54,7 +55,7 @@ export class NotificationService {
    * Create a notification and push to realtime server
    */
   static async sendNotification(data: CreateNotificationData): Promise<Notification> {
-    const { churchId, userId, type, title, message, actionUrl, link, icon, metadata } = data
+    const { churchId, userId, type, title, message, actionUrl, actionLabel, link, icon, metadata } = data
 
     const record = await prisma.notification.create({
       data: {
@@ -64,6 +65,7 @@ export class NotificationService {
         title,
         message,
         actionUrl,
+        actionLabel,
         link,
         icon,
         metadata: metadata as Prisma.InputJsonValue,
@@ -97,7 +99,7 @@ export class NotificationService {
    */
   static async broadcast(data: Omit<CreateNotificationData, 'userId'>, userIds: string[]): Promise<void> {
     if (userIds.length === 0) return
-    const { churchId, type, title, message, actionUrl, link, icon, metadata } = data
+    const { churchId, type, title, message, actionUrl, actionLabel, link, icon, metadata } = data
 
     const now = new Date()
     await prisma.notification.createMany({
@@ -108,6 +110,7 @@ export class NotificationService {
         title,
         message,
         actionUrl,
+        actionLabel,
         link,
         icon,
         metadata: metadata as Prisma.InputJsonValue,
@@ -121,6 +124,7 @@ export class NotificationService {
       title,
       message,
       actionUrl,
+      actionLabel,
       metadata,
       createdAt: now.toISOString(),
     }
