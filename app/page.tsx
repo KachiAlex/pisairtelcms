@@ -118,7 +118,7 @@ const mapPlanFromApi = (plan: PricingApiPlan): MarketingPlan => {
         : billingCycle === 'lifetime'
           ? 'Get Lifetime Access'
           : 'Get Started',
-    popular: plan.type?.toUpperCase() === 'GROWTH',
+    popular: plan.id === 'growth' || plan.type?.toUpperCase() === 'GROWTH',
   }
 }
 
@@ -175,9 +175,24 @@ export default function Home() {
   const [promos, setPromos] = useState<PublicPromo[]>([])
   const [pricingError, setPricingError] = useState<string | null>(null)
   const decoratedPlans = useMemo(
-    () => marketingPlans.map((plan) => applyPromoToPlan(plan, promos)),
+    () =>
+      marketingPlans
+        .map((plan) => applyPromoToPlan(plan, promos))
+        .sort((a, b) => (a.discountedPrice ?? a.price) - (b.discountedPrice ?? b.price)),
     [marketingPlans, promos]
   )
+
+  // A $0 plan is a trial offer, not a tier — it renders as a ribbon above the
+  // grid so the paid cards stay in a clean 4-column array.
+  const freePlan = useMemo(
+    () => decoratedPlans.find((p) => (p.discountedPrice ?? p.price) <= 0 && p.billingCycle !== 'lifetime'),
+    [decoratedPlans]
+  )
+  const paidPlans = useMemo(
+    () => decoratedPlans.filter((p) => p !== freePlan),
+    [decoratedPlans, freePlan]
+  )
+  const plansToRender = paidPlans.length ? paidPlans : decoratedPlans
   const [selectedPlan, setSelectedPlan] = useState<MarketingPlan | null>(null)
   const [checkoutForm, setCheckoutForm] = useState<CheckoutFormState>(emptyCheckoutForm())
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
@@ -631,8 +646,25 @@ export default function Home() {
             </div>
           )}
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            {decoratedPlans.map((plan, index) => {
+          {freePlan && paidPlans.length > 0 && (
+            <div className="reveal mb-6 flex items-center justify-between gap-4 rounded-xl border border-[#2fae66]/30 bg-[#2fae66]/5 px-5 py-4">
+              <div>
+                <p className="font-semibold text-[15px] text-[#15161a]">
+                  {freePlan.trialDays ? `${freePlan.trialDays}-day free trial` : 'Free plan'} — {freePlan.name}
+                </p>
+                <p className="text-[13px] text-[#5b5c63] mt-0.5">{freePlan.description}</p>
+              </div>
+              <Link
+                href={`/auth/register?plan=${freePlan.id}`}
+                className="shrink-0 px-4 py-2.5 rounded-lg bg-[#2fae66] text-white text-[13.5px] font-semibold hover:bg-[#289a59] transition-colors"
+              >
+                Start Free
+              </Link>
+            </div>
+          )}
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 items-stretch">
+            {plansToRender.map((plan, index) => {
               const formatter = currencyFormatter(plan.currency)
               const planPrice = plan.discountedPrice ?? plan.price
               const displayedPrice = formatter.format(planPrice)
@@ -662,7 +694,7 @@ export default function Home() {
               return (
                 <div
                   key={plan.id || index}
-                  className={`reveal relative rounded-2xl p-6 border transition-all duration-300 hover:-translate-y-1 ${
+                  className={`reveal relative rounded-2xl p-6 border transition-all duration-300 hover:-translate-y-1 flex flex-col h-full ${
                     plan.popular
                       ? 'border-[#e31e24] shadow-xl bg-[#faf9f5]'
                       : 'border-[#e6e2d8] shadow-sm hover:shadow-md bg-white'
@@ -688,7 +720,7 @@ export default function Home() {
                     <p className="text-[13.5px] text-[#5b5c63]">{plan.description}</p>
                     <p className="text-[11px] text-[#9b9a94] mt-1 font-['JetBrains_Mono']">{secondaryLabel}</p>
                   </div>
-                  <ul className="space-y-2.5 mb-6">
+                  <ul className="space-y-2.5 mb-6 flex-1">
                     {plan.features.map((feature, idx) => (
                       <li key={idx} className="flex items-start gap-2.5">
                         <svg className="w-[15px] h-[15px] text-[#e31e24] mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -701,7 +733,7 @@ export default function Home() {
                   {isFreePlan ? (
                     <Link
                       href={`/auth/register?plan=${plan.id}`}
-                      className={`block w-full text-center py-3 rounded-lg font-semibold text-[14px] transition-all ${
+                      className={`block w-full text-center py-3 rounded-lg font-semibold text-[14px] transition-all mt-auto ${
                         plan.popular
                           ? 'bg-[#e31e24] text-white hover:bg-[#cf1a1f] shadow-md'
                           : 'bg-[#15161a] text-white hover:bg-[#2a2b30]'
@@ -713,7 +745,7 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() => openCheckout(plan)}
-                      className={`w-full text-center py-3 rounded-lg font-semibold text-[14px] transition-all ${
+                      className={`w-full text-center py-3 rounded-lg font-semibold text-[14px] transition-all mt-auto ${
                         plan.popular
                           ? 'bg-[#e31e24] text-white hover:bg-[#cf1a1f] shadow-md'
                           : 'bg-[#15161a] text-white hover:bg-[#2a2b30]'
