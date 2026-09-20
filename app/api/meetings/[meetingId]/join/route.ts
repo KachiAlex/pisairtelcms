@@ -18,7 +18,7 @@ export async function GET(_request: Request, { params }: { params: { meetingId: 
   const { church, userId, role, session } = guarded.ctx
   const meeting = await prisma.meeting.findFirst({
     where: { id: params.meetingId, churchId: church.id },
-    select: { id: true, jitsi: true },
+    select: { id: true, title: true, jitsi: true },
   })
 
   const roomName = (meeting?.jitsi as any)?.roomName
@@ -33,7 +33,7 @@ export async function GET(_request: Request, { params }: { params: { meetingId: 
     id: userId,
     name: user?.name,
     email: user?.email,
-  }, { moderator })
+  }, { moderator, displayName: meeting.title })
 
   return NextResponse.redirect(url)
 }

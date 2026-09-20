@@ -77,9 +77,10 @@ export async function POST(_request: Request, { params }: { params: { id: string
         email: sessionUser?.email,
       }, { moderator: true })
     : null
+  const displayFragment = JitsiService.displayNameFragment(livestream.title)
   const stageJoinUrl = JitsiService.jwtEnabled && jwt
-    ? `${base}/${settings.roomName}?jwt=${encodeURIComponent(jwt)}`
-    : `${base}/${settings.roomName}`
+    ? `${base}/${settings.roomName}?jwt=${encodeURIComponent(jwt)}${displayFragment}`
+    : `${base}/${settings.roomName}${displayFragment}`
 
   return NextResponse.json({
     roomName: settings.roomName,

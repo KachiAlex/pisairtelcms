@@ -84,15 +84,27 @@ export class JitsiService {
       .sign(new TextEncoder().encode(secret))
   }
 
+  /**
+   * Appended to join URLs so the Jitsi UI (prejoin screen, conference header)
+   * shows a friendly meeting name instead of the unguessable room slug.
+   * This build resolves the displayed name via callDisplayName before
+   * falling back to the start-cased room name.
+   */
+  static displayNameFragment(displayName?: string | null): string {
+    if (!displayName) return ''
+    return `#config.callDisplayName=${encodeURIComponent(JSON.stringify(displayName))}`
+  }
+
   /** Join URL with an embedded JWT for the given user. */
   static async getAuthedJoinUrl(
     roomName: string,
     user: { id: string; name?: string | null; email?: string | null },
-    opts: { moderator?: boolean } = {}
+    opts: { moderator?: boolean; displayName?: string | null } = {}
   ): Promise<string> {
     const base = this.getJoinUrl(roomName)
-    if (!this.jwtEnabled) return base
+    const fragment = this.displayNameFragment(opts.displayName)
+    if (!this.jwtEnabled) return base + fragment
     const jwt = await this.issueToken(roomName, user, opts)
-    return `${base}?jwt=${encodeURIComponent(jwt)}`
+    return `${base}?jwt=${encodeURIComponent(jwt)}${fragment}`
   }
 }
