@@ -30,7 +30,7 @@ services:
     environment:
       DATABASE_URL: postgresql://ecclesia:${POSTGRES_PASSWORD:-ecclesia_secure_pass_2026}@ecclesia-db:5432/ecclesia?schema=public
       SHADOW_DATABASE_URL: postgresql://ecclesia:${POSTGRES_PASSWORD:-ecclesia_secure_pass_2026}@ecclesia-db:5432/ecclesia_shadow?schema=public
-      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://162.35.104.28}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-https://pisairtelcms.com}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-ecclesia_nextauth_secret_2026_change_me}
       NODE_ENV: production
       # Firebase
