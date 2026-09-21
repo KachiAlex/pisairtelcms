@@ -3,15 +3,31 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { UserService } from '@/lib/services/user-service'
 import { prisma } from '@/lib/prisma'
+import crypto from 'crypto'
+
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(String(a))
+  const bb = Buffer.from(String(b))
+  return ab.length === bb.length && crypto.timingSafeEqual(ab, bb)
+}
+
+function getBearerToken(req: Request): string | null {
+  const auth = req.headers.get('authorization') || req.headers.get('Authorization')
+  if (!auth) return null
+  const match = auth.match(/^Bearer\s+(.+)$/i)
+  return match ? match[1] : null
+}
 
 /**
  * Create Superadmin Account
- * 
- * This endpoint creates a superadmin user account.
- * IMPORTANT: This should be protected in production or only run once during initial setup.
- * 
+ *
+ * Requires the SUPERADMIN_BOOTSTRAP_TOKEN bearer token — the same gate as
+ * /api/superadmin/bootstrap. With the env var unset (default), this endpoint
+ * is inert and returns 500.
+ *
  * Usage:
  * POST /api/superadmin/create
+ * Authorization: Bearer <SUPERADMIN_BOOTSTRAP_TOKEN>
  * Body: {
  *   "email": "admin@pi-cms.com",
  *   "password": "secure-password",
@@ -21,9 +37,16 @@ import { prisma } from '@/lib/prisma'
  */
 export async function POST(request: Request) {
   try {
-    // In production, you might want to add additional security checks here
-    // For example, check for a secret token or only allow from specific IPs
-    
+    const expected = (process.env.SUPERADMIN_BOOTSTRAP_TOKEN || '').trim()
+    if (!expected) {
+      return NextResponse.json({ error: 'Server not configured' }, { status: 500 })
+    }
+
+    const provided = getBearerToken(request)
+    if (!provided || !safeEqual(provided, expected)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
     const { email, password, firstName, lastName } = body
 
@@ -68,7 +91,7 @@ export async function POST(request: Request) {
       firstName,
       lastName,
       role: 'SUPER_ADMIN',
-      churchId: '', // Superadmin doesn't belong to a specific church
+      churchId: null, // Superadmin doesn't belong to a specific church
     })
 
     // Remove password from response

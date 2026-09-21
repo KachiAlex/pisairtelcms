@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { SurveyService } from '@/lib/services/survey-service'
-import { prisma } from '@/lib/prisma'
 import { getCurrentChurchId } from '@/lib/church-context'
 
 export const dynamic = 'force-dynamic'
@@ -18,25 +17,15 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const queryChurchId = searchParams.get('churchId')
 
-    const sessionUser = session.user as { id?: string; email?: string; churchId?: string }
-    const sessionUserId = sessionUser.id
-
-    let dbUser: { id: string; churchId: string | null } | null = null
-    if (sessionUserId) {
-      dbUser = await prisma.user.findUnique({
-        where: { id: sessionUserId },
-        select: { id: true, churchId: true },
-      })
-    }
-
-    const userId = dbUser?.id || sessionUserId
+    const userId = (session.user as any)?.id
     if (!userId) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    let churchId: string | null = queryChurchId || dbUser?.churchId || sessionUser.churchId || null
-    if (!churchId) {
-      churchId = await getCurrentChurchId(userId)
+    const churchId = await getCurrentChurchId(userId)
+
+    if (queryChurchId && queryChurchId !== churchId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     if (!churchId) {

@@ -1,14 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth-options'
+import { getCurrentChurchId } from '@/lib/church-context'
 import { ExportService } from '@/lib/services/export-service'
 import { AnalyticsService } from '@/lib/services/analytics-service'
 import { formatChartDataByInterval, ChartDataPoint } from '@/lib/types/chart-types'
 
 /**
  * POST /api/analytics/export
- * Export analytics data as PDF, CSV, or JSON
+ * Export analytics data as PDF, CSV, or JSON.
+ * The church is always derived from the authenticated session; SUPER_ADMIN may
+ * override it with `church` in the body.
  */
 export async function POST(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions)
+    const userId = (session?.user as any)?.id
+    if (!userId) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
     const {
       type,
@@ -20,8 +31,17 @@ export async function POST(request: NextRequest) {
       includeChart = false,
       includeData = true,
       includeMetadata = true,
-      church = 'default-church',
+      church: requestedChurch,
     } = body
+
+    const isSuperAdmin = (session?.user as any)?.role === 'SUPER_ADMIN'
+    const church = isSuperAdmin && requestedChurch
+      ? requestedChurch
+      : await getCurrentChurchId(userId)
+
+    if (!church) {
+      return NextResponse.json({ success: false, error: 'No church selected' }, { status: 400 })
+    }
 
     // Validate request
     if (!['pdf', 'csv', 'json'].includes(type)) {

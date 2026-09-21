@@ -2,6 +2,7 @@
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { SubscriptionPlanService } from '@/lib/services/subscription-service'
+import { guardApi } from '@/lib/api-guard'
 
 export async function GET() {
   try {
@@ -19,6 +20,9 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const guarded = await guardApi({ allowedRoles: ['SUPER_ADMIN'] })
+    if (!guarded.ok) return guarded.response
+
     const body = await request.json()
     const {
       name,

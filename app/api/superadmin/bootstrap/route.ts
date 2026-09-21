@@ -55,7 +55,7 @@ export async function POST(request: Request) {
         firstName,
         lastName,
         role: 'SUPER_ADMIN',
-        churchId: '',
+        churchId: null,
       })
 
       const { password: _pw, ...userWithoutPassword } = created
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
       firstName,
       lastName,
       role: 'SUPER_ADMIN',
-      churchId: '',
+      churchId: null,
     } as any)
 
     const { password: _pw, ...userWithoutPassword } = updated

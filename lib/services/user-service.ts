@@ -9,7 +9,7 @@ export interface User {
   lastName: string
   password: string
   role: string
-  churchId: string
+  churchId: string | null
   branchId?: string
   churchRoleId?: string
   churchRoleName?: string
