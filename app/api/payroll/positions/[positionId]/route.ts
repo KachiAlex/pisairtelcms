@@ -82,8 +82,28 @@ export async function PUT(
 
     const { church } = guarded.ctx
 
+    // Verify position belongs to church before mutating
+    const existing = await PayrollPositionService.findById(positionId)
+    if (!existing || existing.churchId !== church.id) {
+      return NextResponse.json(
+        { error: 'Position not found' },
+        { status: 404 }
+      )
+    }
+
     const body = await request.json()
     const { name, description, departmentId, isActive } = body
+
+    // A departmentId must belong to the same church
+    if (departmentId) {
+      const dept = await prisma.department.findFirst({
+        where: { id: departmentId, churchId: church.id },
+        select: { id: true },
+      })
+      if (!dept) {
+        return NextResponse.json({ error: 'Department not found' }, { status: 404 })
+      }
+    }
 
     const position = await PayrollPositionService.update(positionId, {
       name,

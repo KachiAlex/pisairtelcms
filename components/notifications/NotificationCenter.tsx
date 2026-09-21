@@ -24,13 +24,15 @@ export default function NotificationCenter({
   const displayNotifications = notifications.slice(0, maxDisplay)
 
   const getIcon = (type: string) => {
-    switch (type) {
+    switch ((type || '').toLowerCase()) {
       case 'success':
         return '✅'
       case 'error':
         return '❌'
       case 'warning':
         return '⚠️'
+      case 'birthday':
+        return '🎂'
       case 'info':
       default:
         return 'ℹ️'
@@ -38,13 +40,15 @@ export default function NotificationCenter({
   }
 
   const getTypeColor = (type: string) => {
-    switch (type) {
+    switch ((type || '').toLowerCase()) {
       case 'success':
         return 'bg-green-50 border-green-200'
       case 'error':
         return 'bg-red-50 border-red-200'
       case 'warning':
         return 'bg-yellow-50 border-yellow-200'
+      case 'birthday':
+        return 'bg-pink-50 border-pink-200'
       case 'info':
       default:
         return 'bg-blue-50 border-blue-200'
@@ -99,7 +103,7 @@ export default function NotificationCenter({
               }}
             >
               <div className="flex items-start gap-3">
-                <div className="text-2xl mt-1">{getIcon(notif.type)}</div>
+                <div className="text-2xl mt-1">{notif.icon || getIcon(notif.type)}</div>
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
@@ -116,7 +120,7 @@ export default function NotificationCenter({
 
                   <div className="flex items-center justify-between gap-2 mt-3">
                     <span className="text-xs text-gray-500">
-                      {formatDistanceToNow(new Date(notif.timestamp), {
+                      {formatDistanceToNow(new Date(notif.createdAt || notif.timestamp), {
                         addSuffix: true,
                       })}
                     </span>

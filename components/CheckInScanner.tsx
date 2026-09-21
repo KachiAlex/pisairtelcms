@@ -87,7 +87,7 @@ export default function CheckInScanner() {
         <div className="mt-6 text-center">
           <p className="text-sm text-gray-600 mb-2">Or use your membership card</p>
           <a
-            href="/dashboard/membership-card"
+            href="/membership-card"
             className="text-primary-600 hover:underline text-sm"
           >
             View Membership Card →

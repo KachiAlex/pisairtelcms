@@ -16,7 +16,11 @@ export async function GET(request: Request) {
 
     const userId = (session.user as any)?.id
     const userRole = (session.user as any)?.role
-    
+
+    if (!['ADMIN', 'PASTOR', 'BRANCH_ADMIN', 'SUPER_ADMIN'].includes(userRole)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const { searchParams } = new URL(request.url)
     const unitId = searchParams.get('unitId')
     

@@ -5,8 +5,10 @@ export interface Notification {
   id: string
   title: string
   message: string
-  type: 'success' | 'error' | 'warning' | 'info'
-  timestamp: Date
+  type: string // uppercase enum values from the API (SUCCESS, BIRTHDAY, …)
+  createdAt: string | Date
+  timestamp?: Date
+  icon?: string | null
   read: boolean
   actionUrl?: string
   actionLabel?: string
@@ -42,7 +44,7 @@ export function useNotifications(userId?: string) {
   // Mark as read mutation
   const markAsReadMutation = useMutation({
     mutationFn: async (notificationId: string) => {
-      const response = await fetch(`/api/notifications/${notificationId}/read`, {
+      const response = await fetch(`/api/notifications/${notificationId}`, {
         method: 'POST',
       })
       if (!response.ok) throw new Error('Failed to mark as read')

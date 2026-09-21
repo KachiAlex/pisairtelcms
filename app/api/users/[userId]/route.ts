@@ -254,7 +254,9 @@ export async function PUT(
         updateData.staffLevelId = levelId
         updateData.staffLevelName = staffLevel.name
 
-        if (customWage !== undefined || customWageAmount !== undefined) {
+        if (customWage === null) {
+          updateData.customWage = null
+        } else if (customWage !== undefined || customWageAmount !== undefined) {
           try {
             updateData.customWage = normalizeCustomWage()
           } catch (err: any) {

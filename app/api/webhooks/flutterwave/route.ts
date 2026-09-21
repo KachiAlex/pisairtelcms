@@ -65,12 +65,14 @@ export async function POST(request: Request) {
     const data = body.data
     const meta = data?.meta || {}
 
-    // Idempotency: prevent duplicate processing for the same transaction
-    // Prefer Flutterwave transaction id; fallback to tx_ref.
+    // Idempotency: a row marks "received"; processedAt marks "done".
+    // A row with processedAt=null means a previous attempt failed — reprocess it
+    // instead of discarding, so Flutterwave retries (and manual replays) work.
     const transactionKey = data?.id ? `flutterwave_${data.id}` : data?.tx_ref ? `flutterwave_txref_${data.tx_ref}` : null
+    let webhookEventId: string | null = null
     if (transactionKey) {
       try {
-        await prisma.webhookEvent.create({
+        const created = await prisma.webhookEvent.create({
           data: {
             transactionKey,
             provider: 'flutterwave',
@@ -80,14 +82,32 @@ export async function POST(request: Request) {
             status: data?.status || null,
           },
         })
+        webhookEventId = created.id
       } catch (error: any) {
-        // Unique constraint violation = already processed
         if (error?.code === 'P2002') {
-          logger.info('webhook.flutterwave.duplicate', { correlationId, transactionKey })
-          return NextResponse.json({ received: true, duplicate: true })
+          const existing = await prisma.webhookEvent.findUnique({ where: { transactionKey } })
+          if (existing?.processedAt) {
+            logger.info('webhook.flutterwave.duplicate', { correlationId, transactionKey })
+            return NextResponse.json({ received: true, duplicate: true })
+          }
+          webhookEventId = existing?.id ?? null
+          logger.info('webhook.flutterwave.retry_unprocessed', { correlationId, transactionKey })
+        } else {
+          throw error
         }
-        throw error
       }
+    }
+
+    const markProcessed = async () => {
+      if (!webhookEventId) return
+      await prisma.webhookEvent
+        .update({ where: { id: webhookEventId }, data: { processedAt: new Date() } })
+        .catch((e) => logger.warn('webhook.flutterwave.mark_processed_failed', { correlationId, message: e?.message }))
+    }
+
+    const failProcessing = (logKey: string, extra: Record<string, any> = {}) => {
+      logger.error(logKey, { correlationId, ...extra })
+      return NextResponse.json({ error: 'Processing failed' }, { status: 500 })
     }
 
     // Handle successful payment
@@ -112,6 +132,8 @@ export async function POST(request: Request) {
         if (meta.kind === 'landing_subscription') {
           const reference = data?.tx_ref || verification.transactionId
           if (!reference) {
+            // Missing reference can never heal — mark processed, don't retry
+            await markProcessed()
             logger.error('webhook.flutterwave.landing_missing_reference', { correlationId, transactionId })
             return NextResponse.json({ received: true })
           }
@@ -121,15 +143,14 @@ export async function POST(request: Request) {
               transactionId: verification.transactionId,
               rawEvent: data,
             })
+            await markProcessed()
             return NextResponse.json({ received: true, landingPayment: true })
           } catch (error: any) {
-            logger.error('webhook.flutterwave.landing_payment_error', {
-              correlationId,
+            return failProcessing('webhook.flutterwave.landing_payment_error', {
               transactionId,
               reference,
               message: error?.message,
             })
-            return NextResponse.json({ received: true })
           }
         }
 
@@ -137,6 +158,7 @@ export async function POST(request: Request) {
         if (meta.kind === 'subscription_upgrade') {
           const reference = data?.tx_ref || verification.transactionId
           if (!reference) {
+            await markProcessed()
             logger.error('webhook.flutterwave.subscription_upgrade_missing_reference', { correlationId, transactionId })
             return NextResponse.json({ received: true })
           }
@@ -144,11 +166,8 @@ export async function POST(request: Request) {
           try {
             const payment = await SubscriptionPaymentService.findByReference(reference)
             if (!payment) {
-              logger.error('webhook.flutterwave.subscription_payment_not_found', {
-                correlationId,
-                reference,
-              })
-              return NextResponse.json({ received: true })
+              // Could be an ordering race — return 5xx so Flutterwave retries
+              return failProcessing('webhook.flutterwave.subscription_payment_not_found', { reference })
             }
 
             await SubscriptionPaymentService.markPaid(payment.id, {
@@ -164,15 +183,13 @@ export async function POST(request: Request) {
             const plan = await SubscriptionPlanService.findById(targetPlanId)
             if (!plan) {
               await SubscriptionPaymentService.markFailed(payment.id, 'Plan not found')
-              logger.error('webhook.flutterwave.plan_not_found', { correlationId, targetPlanId })
-              return NextResponse.json({ received: true })
+              return failProcessing('webhook.flutterwave.plan_not_found', { targetPlanId })
             }
 
             const subscription = await SubscriptionService.findByChurch(targetChurchId)
             if (!subscription) {
               await SubscriptionPaymentService.markFailed(payment.id, 'Subscription not found')
-              logger.error('webhook.flutterwave.subscription_not_found', { correlationId, targetChurchId })
-              return NextResponse.json({ received: true })
+              return failProcessing('webhook.flutterwave.subscription_not_found', { targetChurchId })
             }
 
             await SubscriptionService.update(subscription.id, {
@@ -181,23 +198,33 @@ export async function POST(request: Request) {
             })
 
             await SubscriptionPaymentService.markApplied(payment.id)
+            await markProcessed()
 
             return NextResponse.json({ received: true, subscriptionUpgraded: true })
           } catch (error: any) {
-            logger.error('webhook.flutterwave.subscription_upgrade_error', {
-              correlationId,
+            return failProcessing('webhook.flutterwave.subscription_upgrade_error', {
               message: error?.message,
               reference: data?.tx_ref,
             })
-            return NextResponse.json({ received: true })
           }
         }
 
-        // Create giving record
+        // Create giving record — idempotent on transactionId so a retried
+        // webhook after partial success never double-counts a donation.
         if (meta.userId && meta.type) {
           try {
             const { UserService } = await import('@/lib/services/user-service')
             const { ProjectService } = await import('@/lib/services/giving-service')
+
+            const existingGiving = verification.transactionId
+              ? await GivingService.findByTransactionId(verification.transactionId)
+              : null
+
+            if (existingGiving) {
+              await markProcessed()
+              return NextResponse.json({ received: true, alreadyRecorded: true })
+            }
+
             const user = await UserService.findById(meta.userId)
             const project = meta.projectId ? await ProjectService.findById(meta.projectId) : null
 
@@ -252,18 +279,22 @@ export async function POST(request: Request) {
               )
             }
           } catch (error) {
-            logger.error('webhook.flutterwave.giving_or_email_error', {
-              correlationId,
+            // Money was captured but no Giving record was written — return 5xx
+            // so Flutterwave retries instead of silently losing the payment.
+            return failProcessing('webhook.flutterwave.giving_or_email_error', {
               transactionId,
               message: (error as any)?.message,
               name: (error as any)?.name,
             })
-            // Don't fail webhook - payment is already successful
           }
         }
+      } else {
+        // Payment verified unsuccessful — nothing to record, safe to dedupe
+        logger.warn('webhook.flutterwave.verification_failed', { correlationId, transactionId })
       }
     }
 
+    await markProcessed()
     return NextResponse.json({ received: true })
   } catch (error: any) {
     logger.error('webhook.flutterwave.error', {

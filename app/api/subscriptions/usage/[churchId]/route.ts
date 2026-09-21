@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { getChurchUsage, getPlanLimits } from '@/lib/subscription'
+import { getCurrentChurchId } from '@/lib/church-context'
 import { ChurchService } from '@/lib/services/church-service'
 import { SubscriptionService, SubscriptionPlanService } from '@/lib/services/subscription-service'
 
@@ -14,8 +15,18 @@ export async function GET(
   try {
     const { churchId } = await params
     const session = await getServerSession(authOptions)
-    if (!session) {
+    const userId = (session?.user as any)?.id
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Caller may only read their own church's usage (SUPER_ADMIN excepted)
+    const isSuperAdmin = (session!.user as any)?.role === 'SUPER_ADMIN'
+    if (!isSuperAdmin) {
+      const callerChurchId = await getCurrentChurchId(userId)
+      if (callerChurchId !== churchId) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
     }
 
     // Get church with subscription

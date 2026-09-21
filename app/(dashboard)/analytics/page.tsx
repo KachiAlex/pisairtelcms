@@ -22,7 +22,7 @@ export default async function AnalyticsPage() {
     redirect('/')
   }
 
-  const church = await getCurrentChurch()
+  const church = await getCurrentChurch((session.user as any)?.id)
   if (!church) {
     redirect('/register-church')
   }

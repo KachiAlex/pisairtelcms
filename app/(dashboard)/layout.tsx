@@ -10,6 +10,7 @@ import ChurchSwitcher from '@/components/ChurchSwitcher'
 import OnboardingBanner from '@/components/OnboardingBanner'
 import DashboardNav from '@/components/DashboardNav'
 import MobileDashboardLayout from '@/components/MobileDashboardLayout'
+import NotificationBell from '@/components/notifications/NotificationBell'
 
 export const dynamic = 'force-dynamic'
 
@@ -187,6 +188,7 @@ export default async function DashboardLayout({
                   </p>
                 </div>
                 <div className="flex items-center gap-4 shrink-0">
+                  <NotificationBell />
                   <details className="relative [&_summary::-webkit-details-marker]:hidden">
                     <summary className="cursor-pointer list-none">
                       {profileImage ? (

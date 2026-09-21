@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
-
-// In-memory preferences store (replace with database in production)
-const preferencesStore = new Map<string, any>()
+import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 
 const defaultPreferences = {
-  userId: '',
   enableEmailNotifications: true,
   enableInAppNotifications: true,
   enableThresholdAlerts: true,
@@ -22,6 +20,30 @@ const defaultPreferences = {
     startTime: '22:00',
     endTime: '08:00',
   },
+  categories: {
+    announcements: true,
+    eventReminders: true,
+    prayerUpdates: false,
+    weeklyDigest: true,
+    liveStreams: true,
+    givingReceipts: true,
+  },
+}
+
+async function getPrefs(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { notificationPrefs: true },
+  })
+  const stored = (user?.notificationPrefs as Record<string, unknown>) || {}
+  return {
+    ...defaultPreferences,
+    ...stored,
+    channels: { ...defaultPreferences.channels, ...(stored.channels as object || {}) },
+    quietHours: { ...defaultPreferences.quietHours, ...(stored.quietHours as object || {}) },
+    categories: { ...defaultPreferences.categories, ...(stored.categories as object || {}) },
+    userId,
+  }
 }
 
 /**
@@ -36,7 +58,7 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = (session.user as any).id
-    const preferences = preferencesStore.get(userId) || { ...defaultPreferences, userId }
+    const preferences = await getPrefs(userId)
 
     return NextResponse.json({
       success: true,
@@ -65,19 +87,25 @@ export async function PATCH(request: NextRequest) {
     const userId = (session.user as any).id
     const body = await request.json()
 
-    // Get current preferences or default
-    const current = preferencesStore.get(userId) || { ...defaultPreferences, userId }
+    // Strip keys the client must not set
+    delete body.userId
+    delete body.id
+
+    const current = await getPrefs(userId)
 
     // Merge with updates
     const updated = {
       ...current,
       ...body,
-      channels: { ...current.channels, ...body.channels },
-      quietHours: { ...current.quietHours, ...body.quietHours },
+      channels: { ...current.channels, ...(body.channels || {}) },
+      quietHours: { ...current.quietHours, ...(body.quietHours || {}) },
+      categories: { ...current.categories, ...(body.categories || {}) },
     }
 
-    // Store updated preferences
-    preferencesStore.set(userId, updated)
+    await prisma.user.update({
+      where: { id: userId },
+      data: { notificationPrefs: updated as Prisma.InputJsonValue },
+    })
 
     return NextResponse.json({
       success: true,

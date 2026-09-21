@@ -219,7 +219,6 @@ export default function UserProfileEdit({ userId }: UserProfileEditProps) {
       delete updateData.customWageAmount
       delete updateData.customWageCurrency
       delete updateData.customWagePayFrequency
-      delete updateData.staffLevelId
 
       if (!updateData.password) {
         delete updateData.password

@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 import type {
   HierarchyLevelLabels,
   HierarchyLevelDefinition,
@@ -115,6 +116,9 @@ export class ChurchService {
         customDomain: data.customDomain,
         domainVerified: data.domainVerified,
         ownerId: data.ownerId,
+        timezone: data.timezone,
+        hierarchyLevelLabels: data.hierarchyLevelLabels as Prisma.InputJsonValue | undefined,
+        hierarchyLevels: data.hierarchyLevels as Prisma.InputJsonValue | undefined,
       },
     })
     return this.fromPrisma(record)

@@ -136,7 +136,9 @@ export class NotificationService {
    * Push notification to realtime server for instant delivery
    */
   private static async pushToRealtimeServer(userId: string, notification: any): Promise<void> {
-    const realtimeUrl = process.env.REALTIME_SERVER_URL || 'http://realtime:3001'
+    const realtimeUrl = process.env.REALTIME_SERVER_URL
+    if (!realtimeUrl) return // No realtime service deployed — polling covers delivery
+
     const secret = process.env.REALTIME_API_KEY
 
     try {

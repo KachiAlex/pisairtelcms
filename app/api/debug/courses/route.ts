@@ -6,7 +6,10 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
   try {
-    const guarded = await guardApi({ requireChurch: true })
+    const guarded = await guardApi({
+      requireChurch: true,
+      allowedRoles: ['ADMIN', 'PASTOR', 'BRANCH_ADMIN', 'SUPER_ADMIN'],
+    })
     if (!guarded.ok) return guarded.response
 
     const { searchParams } = new URL(request.url)

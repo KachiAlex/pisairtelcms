@@ -25,21 +25,23 @@ export function SignatureUpload({ onSignatureChange }: SignatureUploadProps) {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  // Get current user's church ID from API
+  // Get current user's church ID
   useEffect(() => {
     const getCurrentChurch = async () => {
       try {
-        // We'll use the courses API to get the church context
-        const response = await fetch('/api/digital-school/courses')
+        const response = await fetch('/api/me/permissions')
         if (response.ok) {
-          const courses = await response.json()
-          if (courses.length > 0) {
-            setChurchId(courses[0].churchId)
+          const data = await response.json()
+          if (data?.churchId) {
+            setChurchId(data.churchId)
+            return
           }
         }
       } catch (error) {
         console.error('Failed to get church context:', error)
       }
+      // No church context — stop the loading skeleton
+      setIsLoading(false)
     }
     getCurrentChurch()
   }, [])

@@ -7,6 +7,7 @@ import SignOutButton from '@/components/SignOutButton'
 import BranchSwitcher from '@/components/BranchSwitcher'
 import ChurchSwitcher from '@/components/ChurchSwitcher'
 import DashboardNav from '@/components/DashboardNav'
+import NotificationBell from '@/components/notifications/NotificationBell'
 
 interface MobileDashboardLayoutProps {
   children: React.ReactNode
@@ -78,10 +79,14 @@ export default function MobileDashboardLayout({
             </div>
           </Link>
 
-          {/* Profile Button */}
-          <div className="relative">
-            <button
-              onClick={() => setProfileMenuOpen(!profileMenuOpen)}
+          {/* Right side: notifications + profile */}
+          <div className="flex items-center gap-1">
+            <NotificationBell userId={userId} />
+
+            {/* Profile Button */}
+            <div className="relative">
+              <button
+                onClick={() => setProfileMenuOpen(!profileMenuOpen)}
               className="flex items-center gap-2 p-1 rounded-lg hover:bg-gray-100 transition-colors"
             >
               {profileImage ? (
@@ -125,6 +130,7 @@ export default function MobileDashboardLayout({
                 </div>
               </div>
             )}
+            </div>
           </div>
         </div>
       </header>

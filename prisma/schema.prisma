@@ -146,6 +146,7 @@ model User {
   employmentStatus String?
   isSuspended      Boolean @default(false)
   customWage       Json?
+  notificationPrefs Json?
 
   // Relationships
   departments               DepartmentMembership[]
@@ -333,6 +334,10 @@ model Church {
   accountingExpenses AccountingExpense[]
   unitTypes          UnitType[]
   units              Unit[]
+
+  timezone             String?
+  hierarchyLevelLabels Json?
+  hierarchyLevels      Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2736,14 +2741,15 @@ model PendingDonation {
 
 // Webhook idempotency markers (from webhook_events; doc id = transactionKey)
 model WebhookEvent {
-  id             String   @id @default(cuid())
-  transactionKey String   @unique
+  id             String    @id @default(cuid())
+  transactionKey String    @unique
   provider       String
   event          String?
   txRef          String?
   transactionId  String?
   status         String?
-  createdAt      DateTime @default(now())
+  processedAt    DateTime?
+  createdAt      DateTime  @default(now())
 
   firestoreData Json?
 
