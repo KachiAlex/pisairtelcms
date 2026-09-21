@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
@@ -25,6 +26,17 @@ const navigation = [
   { name: 'Payroll', href: '/payroll', icon: '💵', gradient: 'from-green-600 to-emerald-700' },
 ]
 
+// Tabs hidden from member-level roles unless unlocked by a permission grant.
+// Member-facing tabs (/giving, /attendance) stay visible — grants unlock the
+// management features inside them, not the tab itself.
+const GRANT_TAB_PERMISSIONS: Record<string, string[]> = {
+  '/accounting': ['manage_accounting'],
+  '/payroll': ['view_payroll', 'manage_payroll'],
+  '/reports': ['view_analytics'],
+  '/events': ['manage_events'],
+  '/users': ['view_users'],
+}
+
 interface DashboardNavProps {
   userRole?: string
   isStaff?: boolean
@@ -32,14 +44,30 @@ interface DashboardNavProps {
 
 export default function DashboardNav({ userRole, isStaff = false }: DashboardNavProps) {
   const pathname = usePathname()
+  const [grantedPermissions, setGrantedPermissions] = useState<string[]>([])
 
-  const canSeeUsers = userRole !== 'MEMBER' && userRole !== 'LEADER'
-  const canSeePayroll = (userRole !== 'MEMBER' && userRole !== 'LEADER') || (userRole === 'MEMBER' && isStaff)
-  const canSeeReports = userRole !== 'MEMBER' && userRole !== 'LEADER'
+  const isMemberLike = userRole === 'MEMBER' || userRole === 'LEADER' || userRole === 'VISITOR' || userRole === 'VOLUNTEER'
+
+  useEffect(() => {
+    if (!isMemberLike) return
+    fetch('/api/me/permissions')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setGrantedPermissions(data?.permissions || []))
+      .catch(() => {})
+  }, [isMemberLike])
+
+  const hasGrant = (href: string) => {
+    const perms = GRANT_TAB_PERMISSIONS[href]
+    return !!perms && perms.some((p) => grantedPermissions.includes(p))
+  }
+
+  const canSeeUsers = !isMemberLike || hasGrant('/users')
+  const canSeePayroll = !isMemberLike || (userRole === 'MEMBER' && isStaff) || hasGrant('/payroll')
+  const canSeeReports = !isMemberLike || hasGrant('/reports')
   const canSeeMeetings = true // All authenticated users can view meetings
-  const canSeeEvents = userRole !== 'MEMBER' && userRole !== 'LEADER'
-  const canSeeAccounting = userRole !== 'MEMBER' && userRole !== 'LEADER'
-  const canSeeBranches = userRole !== 'MEMBER' && userRole !== 'LEADER'
+  const canSeeEvents = !isMemberLike || hasGrant('/events')
+  const canSeeAccounting = !isMemberLike || hasGrant('/accounting')
+  const canSeeBranches = !isMemberLike
 
   const isActive = (href: string) => {
     if (href === '/dashboard') {

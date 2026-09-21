@@ -228,6 +228,7 @@ model User {
   DigitalCourseEnrollment    DigitalCourseEnrollment[]
   DigitalCourseAccessRequest DigitalCourseAccessRequest[]
   DigitalExamAttempt         DigitalExamAttempt[]
+  PermissionGrant            PermissionGrant[]
 
   @@index([email])
   @@index([churchId])
@@ -344,6 +345,7 @@ model Church {
   SubscriptionPlanOverride SubscriptionPlanOverride[]
   UnitInviteLink           UnitInviteLink[]
   DigitalCourse            DigitalCourse[]
+  PermissionGrant          PermissionGrant[]
 
   @@index([slug])
   @@index([customDomain])
@@ -3155,5 +3157,26 @@ model EngagementEvent {
   firestoreData Json?
 
   @@index([churchId, date])
+  @@index([userId])
+}
+
+// Scoped capability grants — lets tenant admins (ADMIN/PASTOR, and
+// BRANCH_ADMIN within their own branch) delegate individual features to
+// members without promoting them to a full role. Permanent until revoked.
+// scopeType: 'CHURCH' (scopeId '') or 'BRANCH' (scopeId = branchId).
+model PermissionGrant {
+  id         String   @id @default(cuid())
+  churchId   String
+  church     Church   @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission String
+  scopeType  String   @default("CHURCH")
+  scopeId    String   @default("")
+  grantedBy  String?
+  createdAt  DateTime @default(now())
+
+  @@unique([churchId, userId, permission, scopeType, scopeId])
+  @@index([churchId, userId])
   @@index([userId])
 }

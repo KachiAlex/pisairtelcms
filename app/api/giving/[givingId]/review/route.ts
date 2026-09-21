@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { guardApi } from '@/lib/api-guard'
 import { GivingService, ProjectService } from '@/lib/services/giving-service'
 import { NotificationService } from '@/lib/services/notification-service'
+import { PermissionGrantService } from '@/lib/services/permission-grant-service'
 import { UserService } from '@/lib/services/user-service'
 
 /**
@@ -14,10 +15,11 @@ export async function POST(request: Request, { params }: { params: { givingId: s
   const guarded = await guardApi({
     requireChurch: true,
     allowedRoles: ['ADMIN', 'SUPER_ADMIN', 'BRANCH_ADMIN', 'PASTOR'],
+    allowedPermissions: ['manage_giving'],
   })
   if (!guarded.ok) return guarded.response
 
-  const { church, userId, role } = guarded.ctx
+  const { church, userId, role, viaGrant } = guarded.ctx
   const user = await UserService.findById(userId)
 
   const giving = await GivingService.findById(params.givingId)
@@ -29,6 +31,14 @@ export async function POST(request: Request, { params }: { params: { givingId: s
     const myBranch = (user as any)?.branchId || null
     if (giving.branchId && myBranch && giving.branchId !== myBranch) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+  }
+
+  // Grant-based access: branch-scoped grantees can only review donations in their branches
+  if (viaGrant) {
+    const scope = await PermissionGrantService.getGrantedBranchIds(userId, church.id, 'manage_giving')
+    if (scope !== null && (!giving.branchId || !scope.has(giving.branchId))) {
+      return NextResponse.json({ error: 'Your access is limited to specific branches' }, { status: 403 })
     }
   }
 

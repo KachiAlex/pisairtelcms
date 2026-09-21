@@ -2,6 +2,7 @@ import { getServerSession } from 'next-auth'
 import { NextResponse } from 'next/server'
 import { authOptions } from '@/lib/auth-options'
 import { getCurrentChurch } from '@/lib/church-context'
+import { PermissionGrantService } from '@/lib/services/permission-grant-service'
 import { UserRole } from '@/types'
 
 export type ApiGuardContext = {
@@ -9,12 +10,20 @@ export type ApiGuardContext = {
   userId: string
   role?: UserRole
   church?: any
+  /** True when access was granted via a PermissionGrant rather than the role matrix */
+  viaGrant?: boolean
 }
 
 export type ApiGuardOptions = {
   requireChurch?: boolean
   requireAuth?: boolean
   allowedRoles?: UserRole[]
+  /**
+   * Permissions that unlock this route via PermissionGrant even when the
+   * caller's role is not in allowedRoles (e.g. a MEMBER granted
+   * 'manage_giving' scoped to a branch).
+   */
+  allowedPermissions?: string[]
 }
 
 export async function guardApi(options: ApiGuardOptions = {}): Promise<{ ok: true; ctx: ApiGuardContext } | { ok: false; response: NextResponse }> {
@@ -30,17 +39,31 @@ export async function guardApi(options: ApiGuardOptions = {}): Promise<{ ok: tru
     return { ok: false, response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
   }
 
-  if (options.allowedRoles && options.allowedRoles.length > 0) {
-    if (!role || !options.allowedRoles.includes(role)) {
-      return { ok: false, response: NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 }) }
+  const roleAllowed =
+    !options.allowedRoles || options.allowedRoles.length === 0 ||
+    (!!role && options.allowedRoles.includes(role))
+
+  // Resolve church when required, or when a grant could still unlock access
+  let church: any | undefined
+  if (options.requireChurch || (!roleAllowed && options.allowedPermissions?.length)) {
+    church = await getCurrentChurch(userId)
+    if (!church) {
+      return {
+        ok: false,
+        response: options.requireChurch
+          ? NextResponse.json({ error: 'No church selected' }, { status: 400 })
+          : NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 }),
+      }
     }
   }
 
-  let church: any | undefined
-  if (options.requireChurch) {
-    church = await getCurrentChurch(userId)
-    if (!church) {
-      return { ok: false, response: NextResponse.json({ error: 'No church selected' }, { status: 400 }) }
+  let viaGrant = false
+  if (!roleAllowed) {
+    if (options.allowedPermissions?.length && church) {
+      viaGrant = await PermissionGrantService.hasAnyGrant(userId, church.id, options.allowedPermissions)
+    }
+    if (!viaGrant) {
+      return { ok: false, response: NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 }) }
     }
   }
 
@@ -51,6 +74,7 @@ export async function guardApi(options: ApiGuardOptions = {}): Promise<{ ok: tru
       userId,
       role,
       church,
+      viaGrant,
     },
   }
 }

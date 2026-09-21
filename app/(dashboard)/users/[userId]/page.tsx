@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
 import UserProfile from '@/components/UserProfile'
+import UserAccessPanel from '@/components/UserAccessPanel'
 
 export default async function UserProfilePage({
   params,
@@ -15,6 +16,11 @@ export default async function UserProfilePage({
   }
 
   const { userId } = await params
-  return <UserProfile userId={userId} />
+  return (
+    <div className="space-y-6">
+      <UserProfile userId={userId} />
+      <UserAccessPanel userId={userId} />
+    </div>
+  )
 }
 

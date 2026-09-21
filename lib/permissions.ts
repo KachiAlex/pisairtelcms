@@ -18,6 +18,8 @@ export type Permission =
   | 'send_broadcasts'
   | 'approve_testimonies'
   | 'manage_volunteers'
+  | 'manage_attendance'
+  | 'manage_accounting'
 
 const rolePermissions: Record<UserRole, Permission[]> = {
   VISITOR: [],

@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { guardApi } from '@/lib/api-guard'
 import { AttendanceService } from '@/lib/services/attendance-service'
+import { PermissionGrantService } from '@/lib/services/permission-grant-service'
 import { UserService } from '@/lib/services/user-service'
 
 export async function GET(request: Request) {
@@ -30,8 +31,15 @@ export async function GET(request: Request) {
       limit: 200,
     })
 
-    const counts = await AttendanceService.countRecordsBySessions(sessions.map((s) => s.id))
-    const sessionsWithCounts = sessions.map((s) => ({
+    // Grant-scoped members only see sessions in their granted branches
+    const grantScope = await PermissionGrantService.getGrantedBranchIds(userId, church.id, 'manage_attendance')
+    const visibleSessions =
+      role === 'MEMBER' && grantScope !== null && grantScope.size > 0
+        ? sessions.filter((s) => s.branchId && grantScope.has(s.branchId))
+        : sessions
+
+    const counts = await AttendanceService.countRecordsBySessions(visibleSessions.map((s) => s.id))
+    const sessionsWithCounts = visibleSessions.map((s) => ({
       ...s,
       checkInCount: counts.get(s.id) || 0,
     }))
@@ -47,10 +55,14 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const guarded = await guardApi({ requireChurch: true, allowedRoles: ['ADMIN', 'SUPER_ADMIN', 'BRANCH_ADMIN', 'PASTOR'] })
+    const guarded = await guardApi({
+      requireChurch: true,
+      allowedRoles: ['ADMIN', 'SUPER_ADMIN', 'BRANCH_ADMIN', 'PASTOR'],
+      allowedPermissions: ['manage_attendance'],
+    })
     if (!guarded.ok) return guarded.response
 
-    const { church, userId, role } = guarded.ctx
+    const { church, userId, role, viaGrant } = guarded.ctx
     const user = await UserService.findById(userId)
 
     const body = await request.json()
@@ -60,9 +72,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'title, type, mode, startAt are required' }, { status: 400 })
     }
 
-    const effectiveBranchId = role === 'BRANCH_ADMIN' ? ((user as any)?.branchId || null) : (branchId || null)
+    let effectiveBranchId = role === 'BRANCH_ADMIN' ? ((user as any)?.branchId || null) : (branchId || null)
     if (role === 'BRANCH_ADMIN' && branchId && branchId !== effectiveBranchId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    // Grant-based access: branch-scoped grantees may only create sessions in their branches
+    if (viaGrant) {
+      const scope = await PermissionGrantService.getGrantedBranchIds(userId, church.id, 'manage_attendance')
+      if (scope !== null) {
+        if (!branchId || !scope.has(branchId)) {
+          return NextResponse.json({ error: 'Your access is limited to specific branches' }, { status: 403 })
+        }
+        effectiveBranchId = branchId
+      }
     }
 
     const created = await AttendanceService.createSession({
