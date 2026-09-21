@@ -83,6 +83,9 @@ export default function AccountingHub({ isAdmin }: { isAdmin: boolean }) {
     expenseDate: new Date().toISOString().slice(0, 10),
   })
 
+  const [expenseModalOpen, setExpenseModalOpen] = useState(false)
+  const [incomeModalOpen, setIncomeModalOpen] = useState(false)
+
   const numberFormatter = useMemo(
     () =>
       new Intl.NumberFormat('en-US', {
@@ -288,6 +291,7 @@ export default function AccountingHub({ isAdmin }: { isAdmin: boolean }) {
       if (!res.ok) throw new Error(await readApiError(res))
 
       setExpenseForm((p) => ({ ...p, amount: '', description: '' }))
+      setExpenseModalOpen(false)
       await loadAll()
     } catch (e: any) {
       setError(e?.message || 'Failed to save')
@@ -322,6 +326,7 @@ export default function AccountingHub({ isAdmin }: { isAdmin: boolean }) {
 
       setIncomeForm((p) => ({ ...p, amount: '', description: '' }))
       setIncomeReceipt(null)
+      setIncomeModalOpen(false)
       await loadAll()
     } catch (e: any) {
       setError(e?.message || 'Failed to save income')
@@ -578,92 +583,10 @@ export default function AccountingHub({ isAdmin }: { isAdmin: boolean }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl border p-5 space-y-3">
-            <h2 className="text-lg font-semibold">Add Expense</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-gray-600">Amount</label>
-                <input className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={expenseForm.amount} onChange={(e) => setExpenseForm((p) => ({ ...p, amount: e.target.value }))} />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-600">Currency (optional)</label>
-                <select className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={expenseForm.currency} onChange={(e) => setExpenseForm((p) => ({ ...p, currency: e.target.value }))}>
-                  <option value="">Default</option>
-                  {['NGN','USD','GBP','EUR','CAD','AUD','ZAR','GHS','KES'].map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-600">Category</label>
-                <select className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={expenseForm.category} onChange={(e) => setExpenseForm((p) => ({ ...p, category: e.target.value }))}>
-                  {['Rent','Utilities','Welfare','Transport','Media','Maintenance','Salaries','Missions','Other'].map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-600">Date</label>
-                <input type="date" className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={expenseForm.expenseDate} onChange={(e) => setExpenseForm((p) => ({ ...p, expenseDate: e.target.value }))} />
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-gray-600">Description (optional)</label>
-              <input className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={expenseForm.description} onChange={(e) => setExpenseForm((p) => ({ ...p, description: e.target.value }))} />
-            </div>
-            <button disabled={saving} onClick={createExpense} className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm disabled:opacity-60">
-              {saving ? 'Saving...' : 'Save Expense'}
-            </button>
-          </div>
-
-          <div className="bg-white rounded-xl border p-5 space-y-3">
-            <h2 className="text-lg font-semibold">Add Income (Manual)</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-gray-600">Amount</label>
-                <input className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={incomeForm.amount} onChange={(e) => setIncomeForm((p) => ({ ...p, amount: e.target.value }))} />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-600">Currency (optional)</label>
-                <select className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={incomeForm.currency} onChange={(e) => setIncomeForm((p) => ({ ...p, currency: e.target.value }))}>
-                  <option value="">Default</option>
-                  {['NGN','USD','GBP','EUR','CAD','AUD','ZAR','GHS','KES'].map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-600">Source</label>
-                <select className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={incomeForm.source} onChange={(e) => setIncomeForm((p) => ({ ...p, source: e.target.value }))}>
-                  {['Cash Offering','Bank Transfer','Grant','Fundraising','Sponsorship','Venue Rental','Other'].map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-600">Date</label>
-                <input type="date" className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={incomeForm.incomeDate} onChange={(e) => setIncomeForm((p) => ({ ...p, incomeDate: e.target.value }))} />
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-gray-600">Description (optional)</label>
-              <input className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={incomeForm.description} onChange={(e) => setIncomeForm((p) => ({ ...p, description: e.target.value }))} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-gray-600">Receipt (optional: PDF/JPG/PNG/WebP, max 10MB)</label>
-              <input type="file" className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" accept="application/pdf,image/*" onChange={(e) => setIncomeReceipt(e.target.files?.[0] || null)} />
-            </div>
-            <button disabled={incomeSaving} onClick={createIncome} className="px-4 py-2 rounded-lg bg-green-600 text-white font-semibold text-sm disabled:opacity-60">
-              {incomeSaving ? 'Saving...' : 'Save Income'}
-            </button>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border p-5">
-          <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-            <h2 className="text-lg font-semibold">Ledger</h2>
+      <div className="bg-white rounded-xl border p-5">
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <h2 className="text-lg font-semibold">Ledger</h2>
+          <div className="flex items-center gap-2">
             <select
               className="border rounded-lg px-3 py-1.5 text-xs"
               value={accountFilter}
@@ -674,12 +597,27 @@ export default function AccountingHub({ isAdmin }: { isAdmin: boolean }) {
                 <option key={a} value={a}>{a}</option>
               ))}
             </select>
+            <button
+              type="button"
+              onClick={() => setIncomeModalOpen(true)}
+              className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition"
+            >
+              + Add Income
+            </button>
+            <button
+              type="button"
+              onClick={() => setExpenseModalOpen(true)}
+              className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition"
+            >
+              + Add Expense
+            </button>
           </div>
-          {loading ? (
-            <div className="text-gray-600">Loading...</div>
-          ) : (
-            <div className="max-h-[560px] overflow-auto border rounded-lg">
-              <table className="w-full text-sm">
+        </div>
+        {loading ? (
+          <div className="text-gray-600">Loading...</div>
+        ) : (
+          <div className="max-h-[560px] overflow-auto border rounded-lg">
+            <table className="w-full text-sm">
                 <thead className="bg-gray-50 text-xs text-gray-600 sticky top-0">
                   <tr>
                     <th className="text-left px-3 py-2 font-semibold">Date</th>
@@ -758,11 +696,10 @@ export default function AccountingHub({ isAdmin }: { isAdmin: boolean }) {
                       </td>
                     </tr>
                   )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border p-5">
@@ -786,6 +723,134 @@ export default function AccountingHub({ isAdmin }: { isAdmin: boolean }) {
           </div>
         )}
       </div>
+
+      {expenseModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setExpenseModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 space-y-3 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Add Expense</h2>
+              <button
+                type="button"
+                onClick={() => setExpenseModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-600">Amount</label>
+                <input className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={expenseForm.amount} onChange={(e) => setExpenseForm((p) => ({ ...p, amount: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600">Currency (optional)</label>
+                <select className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={expenseForm.currency} onChange={(e) => setExpenseForm((p) => ({ ...p, currency: e.target.value }))}>
+                  <option value="">Default</option>
+                  {['NGN','USD','GBP','EUR','CAD','AUD','ZAR','GHS','KES'].map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600">Category</label>
+                <select className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={expenseForm.category} onChange={(e) => setExpenseForm((p) => ({ ...p, category: e.target.value }))}>
+                  {['Rent','Utilities','Welfare','Transport','Media','Maintenance','Salaries','Missions','Other'].map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600">Date</label>
+                <input type="date" className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={expenseForm.expenseDate} onChange={(e) => setExpenseForm((p) => ({ ...p, expenseDate: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-600">Description (optional)</label>
+              <input className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={expenseForm.description} onChange={(e) => setExpenseForm((p) => ({ ...p, description: e.target.value }))} />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button disabled={saving} onClick={createExpense} className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm disabled:opacity-60">
+                {saving ? 'Saving...' : 'Save Expense'}
+              </button>
+              <button type="button" onClick={() => setExpenseModalOpen(false)} className="px-4 py-2 rounded-lg border text-sm">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {incomeModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setIncomeModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 space-y-3 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Add Income (Manual)</h2>
+              <button
+                type="button"
+                onClick={() => setIncomeModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-600">Amount</label>
+                <input className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={incomeForm.amount} onChange={(e) => setIncomeForm((p) => ({ ...p, amount: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600">Currency (optional)</label>
+                <select className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={incomeForm.currency} onChange={(e) => setIncomeForm((p) => ({ ...p, currency: e.target.value }))}>
+                  <option value="">Default</option>
+                  {['NGN','USD','GBP','EUR','CAD','AUD','ZAR','GHS','KES'].map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600">Source</label>
+                <select className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={incomeForm.source} onChange={(e) => setIncomeForm((p) => ({ ...p, source: e.target.value }))}>
+                  {['Cash Offering','Bank Transfer','Grant','Fundraising','Sponsorship','Venue Rental','Other'].map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600">Date</label>
+                <input type="date" className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={incomeForm.incomeDate} onChange={(e) => setIncomeForm((p) => ({ ...p, incomeDate: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-600">Description (optional)</label>
+              <input className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={incomeForm.description} onChange={(e) => setIncomeForm((p) => ({ ...p, description: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-600">Receipt (optional: PDF/JPG/PNG/WebP, max 10MB)</label>
+              <input type="file" className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" accept="application/pdf,image/*" onChange={(e) => setIncomeReceipt(e.target.files?.[0] || null)} />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button disabled={incomeSaving} onClick={createIncome} className="px-4 py-2 rounded-lg bg-green-600 text-white font-semibold text-sm disabled:opacity-60">
+                {incomeSaving ? 'Saving...' : 'Save Income'}
+              </button>
+              <button type="button" onClick={() => setIncomeModalOpen(false)} className="px-4 py-2 rounded-lg border text-sm">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
