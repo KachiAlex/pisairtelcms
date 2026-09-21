@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
 import { GivingService } from '@/lib/services/giving-service'
-import { ProjectService } from '@/lib/services/giving-service'
+import { prisma } from '@/lib/prisma'
 
 export async function GET(request: Request) {
   try {
@@ -26,22 +26,22 @@ export async function GET(request: Request) {
       giving = giving.filter(g => g.type === type)
     }
 
-    // Get project data for each giving record
-    const givingWithProjects = await Promise.all(
-      giving.map(async (g) => {
-        let project = null
-        if (g.projectId) {
-          project = await ProjectService.findById(g.projectId)
-        }
-        return {
-          ...g,
-          project: project ? {
-            id: project.id,
-            name: project.name,
-          } : null,
-        }
-      })
-    )
+    // Get project data — one batched query instead of N+1
+    const projectIds = [...new Set(giving.map((g) => g.projectId).filter(Boolean))] as string[]
+    const projects = projectIds.length
+      ? await prisma.project.findMany({
+          where: { id: { in: projectIds } },
+          select: { id: true, name: true },
+        })
+      : []
+    const projectMap = new Map(projects.map((p) => [p.id, p]))
+
+    const givingWithProjects = giving.map((g) => ({
+      ...g,
+      project: g.projectId && projectMap.has(g.projectId)
+        ? { id: g.projectId, name: projectMap.get(g.projectId)!.name }
+        : null,
+    }))
 
     // Get summary
     const totalAmount = await GivingService.getTotalByUser(userId)

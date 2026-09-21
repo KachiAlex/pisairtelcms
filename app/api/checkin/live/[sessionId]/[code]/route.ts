@@ -5,6 +5,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { AttendanceService } from '@/lib/services/attendance-service'
 import { verifyLiveCode } from '@/lib/attendance-qr'
+import { rateLimit, clientIp } from '@/lib/rate-limit'
 import { prisma } from '@/lib/prisma'
 
 async function resolveSession(sessionId: string, code: string) {
@@ -69,6 +70,10 @@ export async function POST(
   request: Request,
   { params }: { params: { sessionId: string; code: string } },
 ) {
+  if (!rateLimit(`checkin:${clientIp(request)}`, 60, 10 * 60 * 1000)) {
+    return NextResponse.json({ error: 'Too many attempts — try again shortly' }, { status: 429 })
+  }
+
   const session = await resolveSession(params.sessionId, params.code)
   if (!session) {
     return NextResponse.json(

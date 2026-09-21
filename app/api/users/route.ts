@@ -36,16 +36,22 @@ const normalizeCustomWage = (input: any) => {
 
 export async function GET(request: Request) {
   try {
-    const guarded = await guardApi({ requireChurch: true })
+    const guarded = await guardApi({
+      requireChurch: true,
+      allowedPermissions: ['view_users'],
+    })
     if (!guarded.ok) return guarded.response
 
     const { userId, church, role } = guarded.ctx
 
-    if (role === 'MEMBER') {
-      return NextResponse.json(
-        { error: 'Insufficient permissions' },
-        { status: 403 }
-      )
+    if (role === 'MEMBER' || role === 'VISITOR') {
+      // Members/visitors only pass when they hold a view_users grant
+      if (!(guarded.ctx as any).viaGrant) {
+        return NextResponse.json(
+          { error: 'Insufficient permissions' },
+          { status: 403 }
+        )
+      }
     }
 
     const { searchParams } = new URL(request.url)

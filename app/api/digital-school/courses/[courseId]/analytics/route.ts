@@ -6,9 +6,7 @@ import {
   DigitalCourseEnrollmentService,
   DigitalCourseExamService,
   DigitalCourseService,
-  DigitalExamAttemptService,
 } from '@/lib/services/digital-school-service'
-import { UserService } from '@/lib/services/user-service'
 import { prisma } from '@/lib/prisma'
 import { UserRole } from '@/types'
 
@@ -33,8 +31,22 @@ export async function GET(_: Request, { params }: RouteParams) {
     const enrollments = await DigitalCourseEnrollmentService.listByCourse(course.id)
 
     const userIds = Array.from(new Set(enrollments.map((enrollment) => enrollment.userId)))
-    const users = await Promise.all(userIds.map(async (userId) => UserService.findById(userId)))
-    const userMap = new Map(users.filter(Boolean).map((user) => [user!.id, user!]))
+    const users = userIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: {
+            id: true, firstName: true, lastName: true, email: true,
+            branchId: true, spiritualMaturity: true, designationName: true,
+            firestoreData: true,
+          },
+        })
+      : []
+    // churchRoleName lives in the legacy firestoreData merge
+    const hydrated = users.map(({ firestoreData, ...rest }: any) => ({
+      ...(firestoreData as object || {}),
+      ...rest,
+    }))
+    const userMap = new Map(hydrated.map((user: any) => [user.id, user]))
 
     const branchIds = Array.from(
       new Set(
@@ -57,25 +69,23 @@ export async function GET(_: Request, { params }: RouteParams) {
       }
     >()
 
-    for (const exam of exams) {
-      const attempts = await DigitalExamAttemptService.listByExam(exam.id)
-      attempts.forEach((attempt) => {
-        const existing = attemptsByUser.get(attempt.userId)
-        const attemptTimestamp =
-          attempt.submittedAt?.getTime() ?? attempt.updatedAt?.getTime() ?? attempt.startedAt?.getTime() ?? 0
-        const existingTimestamp =
-          existing?.submittedAt?.getTime() ??
-          existing?.submittedAt?.getTime() ??
-          existing?.submittedAt?.getTime() ??
-          0
-        if (!existing || attemptTimestamp > existingTimestamp) {
-          attemptsByUser.set(attempt.userId, {
-            score: attempt.score ?? null,
-            submittedAt: attempt.submittedAt ?? attempt.updatedAt ?? attempt.startedAt,
-          })
-        }
-      })
-    }
+    const examIds = exams.map((exam) => exam.id)
+    const attempts = examIds.length
+      ? await prisma.digitalExamAttempt.findMany({ where: { examId: { in: examIds } } })
+      : []
+    attempts.forEach((attempt) => {
+      const existing = attemptsByUser.get(attempt.userId)
+      const attemptTimestamp =
+        attempt.submittedAt?.getTime() ?? attempt.updatedAt?.getTime() ?? attempt.startedAt?.getTime() ?? 0
+      const existingTimestamp =
+        existing?.submittedAt?.getTime() ?? 0
+      if (!existing || attemptTimestamp > existingTimestamp) {
+        attemptsByUser.set(attempt.userId, {
+          score: attempt.score ?? null,
+          submittedAt: attempt.submittedAt ?? attempt.updatedAt ?? attempt.startedAt,
+        })
+      }
+    })
 
     const rows = enrollments.map((enrollment) => {
       const user = userMap.get(enrollment.userId)

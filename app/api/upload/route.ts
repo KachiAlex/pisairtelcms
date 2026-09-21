@@ -16,9 +16,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
 
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      return NextResponse.json({ error: 'Only image files are allowed' }, { status: 400 })
+    // Whitelist safe image types — extension derived from the validated
+    // MIME type, never from the client-supplied filename (svg can carry
+    // scripts; a spoofed extension could smuggle other content types)
+    const MIME_EXT: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+    }
+    const extension = MIME_EXT[file.type]
+    if (!extension) {
+      return NextResponse.json(
+        { error: 'Only JPEG, PNG, GIF, and WebP images are allowed' },
+        { status: 400 }
+      )
     }
 
     // Validate file size (5MB limit)
@@ -31,10 +43,7 @@ export async function POST(request: NextRequest) {
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
 
-    // Generate unique filename
-    const timestamp = Date.now()
-    const extension = file.name.split('.').pop() || 'jpg'
-    const fileName = `${timestamp}-${Math.random().toString(36).substring(7)}.${extension}`
+    const fileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`
 
     // Upload to storage
     const upload = await StorageService.uploadFile({

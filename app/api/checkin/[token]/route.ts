@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { AttendanceService } from '@/lib/services/attendance-service'
+import { rateLimit, clientIp } from '@/lib/rate-limit'
 
 function sessionSummary(session: any) {
   return {
@@ -47,6 +48,13 @@ export async function GET(_request: Request, { params }: { params: { token: stri
 }
 
 export async function POST(request: Request, { params }: { params: { token: string } }) {
+  // Guests check in over a shared token — cap per-IP so a leaked QR
+  // can't be scripted into unlimited fake attendance. Generous limit
+  // because a congregation may share one NAT address.
+  if (!rateLimit(`checkin:${clientIp(request)}`, 60, 10 * 60 * 1000)) {
+    return NextResponse.json({ error: 'Too many attempts — try again shortly' }, { status: 429 })
+  }
+
   const session = await AttendanceService.findSessionByQrToken(params.token)
   if (!session) {
     return NextResponse.json({ error: 'Invalid or expired check-in code' }, { status: 404 })

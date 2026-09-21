@@ -4,8 +4,7 @@ import { NextResponse } from 'next/server'
 import { guardApi } from '@/lib/api-guard'
 import { prisma } from '@/lib/prisma'
 import { PostService } from '@/lib/services/post-service'
-import { UnitMembershipService, UnitService } from '@/lib/services/unit-service'
-import { MessageService } from '@/lib/services/message-service'
+
 
 export async function POST(request: Request, { params }: { params: { postId: string } }) {
   const guarded = await guardApi({ requireChurch: true })
@@ -26,17 +25,21 @@ export async function POST(request: Request, { params }: { params: { postId: str
     return NextResponse.json({ error: 'Post not found' }, { status: 404 })
   }
 
-  // Validate user is a member of each unit they are sharing into.
-  for (const unitId of unitIds) {
-    const unit = await UnitService.findById(unitId)
-    if (!unit || unit.churchId !== church!.id) {
-      return NextResponse.json({ error: 'Invalid unit selected' }, { status: 400 })
-    }
+  // Validate units + caller's membership in batched queries
+  const units = await prisma.unit.findMany({
+    where: { id: { in: unitIds }, churchId: church!.id },
+    select: { id: true },
+  })
+  if (units.length !== new Set(unitIds).size) {
+    return NextResponse.json({ error: 'Invalid unit selected' }, { status: 400 })
+  }
 
-    const membership = await UnitMembershipService.findByUserAndUnit(userId, unitId)
-    if (!membership) {
-      return NextResponse.json({ error: 'You must be a member of a unit to share into it' }, { status: 403 })
-    }
+  const memberships = await prisma.unitMembership.findMany({
+    where: { userId, unitId: { in: unitIds } },
+    select: { unitId: true },
+  })
+  if (memberships.length !== new Set(unitIds).size) {
+    return NextResponse.json({ error: 'You must be a member of a unit to share into it' }, { status: 403 })
   }
 
   // Store share record
@@ -56,20 +59,23 @@ export async function POST(request: Request, { params }: { params: { postId: str
   const preview = String(post.content || '').slice(0, 140)
   const messageText = `[POST SHARE] ${note ? note + ' — ' : ''}${preview} (view: ${link})`
 
+  // Fan out via a single membership query + batched message insert
+  const members = await prisma.unitMembership.findMany({
+    where: { unitId: { in: unitIds } },
+    select: { unitId: true, userId: true },
+  })
+
   const notified = new Set<string>()
-  for (const unitId of unitIds) {
-    const members = await UnitMembershipService.findByUnit(unitId)
-    for (const m of members) {
-      if (m.userId === userId) continue
-      const key = `${unitId}:${m.userId}`
-      if (notified.has(key)) continue
-      notified.add(key)
-      await MessageService.create({
-        senderId: userId,
-        receiverId: m.userId,
-        content: messageText,
-      })
-    }
+  const messages: { senderId: string; receiverId: string; content: string }[] = []
+  for (const m of members) {
+    if (m.userId === userId) continue
+    const key = `${m.unitId}:${m.userId}`
+    if (notified.has(key)) continue
+    notified.add(key)
+    messages.push({ senderId: userId, receiverId: m.userId, content: messageText })
+  }
+  if (messages.length) {
+    await prisma.message.createMany({ data: messages })
   }
 
   return NextResponse.json({ success: true, shareId: share.id })
