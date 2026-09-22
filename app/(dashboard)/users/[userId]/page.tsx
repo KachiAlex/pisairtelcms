@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth-options'
 import UserProfile from '@/components/UserProfile'
 import UserAccessPanel from '@/components/UserAccessPanel'
+import UserGivingHistory from '@/components/UserGivingHistory'
 
 export default async function UserProfilePage({
   params,
@@ -19,6 +20,7 @@ export default async function UserProfilePage({
   return (
     <div className="space-y-6">
       <UserProfile userId={userId} />
+      <UserGivingHistory userId={userId} />
       <UserAccessPanel userId={userId} />
     </div>
   )

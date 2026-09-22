@@ -5,6 +5,7 @@ import { guardApi } from '@/lib/api-guard'
 import { AttendanceService } from '@/lib/services/attendance-service'
 import { PermissionGrantService } from '@/lib/services/permission-grant-service'
 import { UserService } from '@/lib/services/user-service'
+import { prisma } from '@/lib/prisma'
 
 export async function GET(request: Request) {
   try {
@@ -66,10 +67,21 @@ export async function POST(request: Request) {
     const user = await UserService.findById(userId)
 
     const body = await request.json()
-    const { branchId, title, type, mode, startAt, endAt, location, notes } = body
+    const { branchId, meetingId, title, type, mode, startAt, endAt, location, notes } = body
 
     if (!title || !type || !mode || !startAt) {
       return NextResponse.json({ error: 'title, type, mode, startAt are required' }, { status: 400 })
+    }
+
+    // A session may be anchored to a meeting — it must belong to this church
+    if (meetingId) {
+      const meeting = await prisma.meeting.findUnique({
+        where: { id: String(meetingId) },
+        select: { churchId: true },
+      })
+      if (!meeting || meeting.churchId !== church.id) {
+        return NextResponse.json({ error: 'Meeting not found' }, { status: 404 })
+      }
     }
 
     let effectiveBranchId = role === 'BRANCH_ADMIN' ? ((user as any)?.branchId || null) : (branchId || null)
@@ -91,6 +103,7 @@ export async function POST(request: Request) {
     const created = await AttendanceService.createSession({
       churchId: church.id,
       branchId: effectiveBranchId || undefined,
+      meetingId: meetingId ? String(meetingId) : undefined,
       title,
       type,
       mode,

@@ -2192,6 +2192,8 @@ model Meeting {
   google     Json? // { calendarId, calendarEventId, meetUrl }
   jitsi      Json? // { roomName, joinUrl }
 
+  attendanceSessions AttendanceSession[]
+
   @@index([churchId])
   @@index([createdBy])
   @@index([status])
@@ -2344,6 +2346,8 @@ model AttendanceSession {
   church    Church             @relation(fields: [churchId], references: [id])
   branchId  String?
   branch    Branch?            @relation(fields: [branchId], references: [id])
+  meetingId String?
+  meeting   Meeting?           @relation(fields: [meetingId], references: [id], onDelete: SetNull)
   title     String
   type      String // "SERVICE", "MEETING"
   mode      String // "OFFLINE", "ONLINE", "HYBRID"
@@ -2361,6 +2365,7 @@ model AttendanceSession {
 
   @@index([churchId])
   @@index([branchId])
+  @@index([meetingId])
   @@index([startAt])
 }
 

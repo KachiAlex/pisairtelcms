@@ -44,6 +44,7 @@ export default async function CheckInPage({ params }: { params: { token: string 
         startAt: session.startAt.toISOString(),
         location: session.location,
         churchName: session.church?.name || null,
+        meetingTitle: (session as any).meeting?.title || null,
       }}
       postUrl={`/api/checkin/${params.token}`}
       userName={userName}

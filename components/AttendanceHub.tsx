@@ -18,6 +18,7 @@ type AttendanceSession = {
   notes?: string
   headcount?: any
   checkInCount?: number
+  meeting?: { id: string; title: string } | null
 }
 
 type AttendanceRecord = {
@@ -32,6 +33,13 @@ type AttendanceRecord = {
 type QrPayload = {
   checkInUrl: string
   qrPngDataUrl: string
+}
+
+type MeetingOption = {
+  seriesId: string
+  title: string
+  startAt: string
+  occurrenceKey?: string
 }
 
 export default function AttendanceHub({ isManager }: { isManager: boolean }) {
@@ -50,6 +58,8 @@ export default function AttendanceHub({ isManager }: { isManager: boolean }) {
   const [records, setRecords] = useState<AttendanceRecord[]>([])
 
   const [creating, setCreating] = useState(false)
+  const [meetingOptions, setMeetingOptions] = useState<MeetingOption[]>([])
+  const [meetingPick, setMeetingPick] = useState('')
   const [createForm, setCreateForm] = useState({
     title: '',
     type: 'SERVICE',
@@ -57,6 +67,7 @@ export default function AttendanceHub({ isManager }: { isManager: boolean }) {
     startAt: new Date().toISOString().slice(0, 16),
     location: '',
     notes: '',
+    meetingId: '',
   })
 
   const [headcountSaving, setHeadcountSaving] = useState(false)
@@ -147,6 +158,25 @@ export default function AttendanceHub({ isManager }: { isManager: boolean }) {
     loadBranchesAndDefault()
   }, [loadBranchesAndDefault])
 
+  // Upcoming meetings for the session-anchor picker (managers only)
+  useEffect(() => {
+    if (!isManager) return
+    fetch('/api/meetings', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const occurrences = (j?.occurrences || []) as any[]
+        setMeetingOptions(
+          occurrences.map((o) => ({
+            seriesId: o.seriesId,
+            title: o.title,
+            startAt: o.startAt,
+            occurrenceKey: o.id,
+          })),
+        )
+      })
+      .catch(() => {})
+  }, [isManager])
+
   useEffect(() => {
     loadSessions()
   }, [loadSessions])
@@ -169,6 +199,7 @@ export default function AttendanceHub({ isManager }: { isManager: boolean }) {
           startAt: new Date(createForm.startAt).toISOString(),
           location: createForm.location || null,
           notes: createForm.notes || null,
+          meetingId: createForm.meetingId || null,
         }),
       })
       if (!res.ok) throw new Error(await readApiError(res))
@@ -325,6 +356,38 @@ export default function AttendanceHub({ isManager }: { isManager: boolean }) {
         {isManager && (
           <div className="bg-white rounded-xl border p-5 space-y-3">
             <h2 className="text-lg font-semibold">Create Session</h2>
+            {meetingOptions.length > 0 && (
+              <div>
+                <label className="text-xs font-semibold text-gray-600">Link to meeting (optional)</label>
+                <select
+                  className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+                  value={meetingPick}
+                  onChange={(e) => {
+                    setMeetingPick(e.target.value)
+                    const idx = Number(e.target.value)
+                    const opt = meetingOptions[idx]
+                    if (opt) {
+                      setCreateForm((p) => ({
+                        ...p,
+                        meetingId: opt.seriesId,
+                        title: p.title || opt.title,
+                        type: 'MEETING',
+                        startAt: new Date(opt.startAt).toISOString().slice(0, 16),
+                      }))
+                    } else {
+                      setCreateForm((p) => ({ ...p, meetingId: '' }))
+                    }
+                  }}
+                >
+                  <option value="">Standalone session — no meeting</option>
+                  {meetingOptions.map((m, i) => (
+                    <option key={`${m.seriesId}:${m.startAt}`} value={i}>
+                      {m.title} — {new Date(m.startAt).toLocaleString()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <label className="text-xs font-semibold text-gray-600">Title</label>
               <input className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" value={createForm.title} onChange={(e) => setCreateForm((p) => ({ ...p, title: e.target.value }))} />
@@ -396,6 +459,9 @@ export default function AttendanceHub({ isManager }: { isManager: boolean }) {
                     >
                       <div className="text-sm font-semibold">{s.title}</div>
                       <div className="text-xs text-gray-600">{new Date(s.startAt).toLocaleString()} • {s.type} • {s.mode} {s.branchId ? `• Branch: ${s.branchId}` : ''}</div>
+                      {s.meeting && (
+                        <div className="text-xs text-indigo-600 mt-0.5">Meeting: {s.meeting.title}</div>
+                      )}
                       <div className="text-xs text-gray-600 mt-1">Check-ins: {s.checkInCount ?? 0}</div>
                     </button>
                     {isManager && (

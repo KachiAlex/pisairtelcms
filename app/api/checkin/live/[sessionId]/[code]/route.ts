@@ -11,7 +11,10 @@ import { prisma } from '@/lib/prisma'
 async function resolveSession(sessionId: string, code: string) {
   const session = await prisma.attendanceSession.findUnique({
     where: { id: sessionId },
-    include: { church: { select: { name: true } } },
+    include: {
+      church: { select: { name: true } },
+      meeting: { select: { id: true, title: true } },
+    },
   })
   if (!session?.qrToken || !verifyLiveCode(session.qrToken, code)) {
     return null
@@ -28,6 +31,7 @@ function sessionSummary(session: any) {
     startAt: session.startAt,
     location: session.location,
     churchName: session.church?.name || null,
+    meetingTitle: session.meeting?.title || null,
   }
 }
 

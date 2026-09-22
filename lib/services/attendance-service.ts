@@ -9,6 +9,7 @@ export interface AttendanceSession {
   id: string
   churchId: string
   branchId?: string | null
+  meetingId?: string | null
   title: string
   type: string
   mode: string
@@ -48,6 +49,7 @@ export class AttendanceService {
       data: {
         churchId: data.churchId,
         branchId: data.branchId ?? null,
+        meetingId: data.meetingId ?? null,
         title: data.title,
         type: data.type,
         mode: data.mode,
@@ -83,6 +85,7 @@ export class AttendanceService {
       },
       take: options?.limit || 200,
       orderBy: { startAt: 'desc' },
+      include: { meeting: { select: { id: true, title: true } } },
     })
     return records as unknown as AttendanceSession[]
   }
@@ -133,10 +136,13 @@ export class AttendanceService {
     return records as unknown as AttendanceRecord[]
   }
 
-  static async findSessionByQrToken(qrToken: string): Promise<(AttendanceSession & { church?: { name: string } }) | null> {
+  static async findSessionByQrToken(qrToken: string): Promise<(AttendanceSession & { church?: { name: string }; meeting?: { id: string; title: string } | null }) | null> {
     const record = await prisma.attendanceSession.findUnique({
       where: { qrToken },
-      include: { church: { select: { name: true } } },
+      include: {
+        church: { select: { name: true } },
+        meeting: { select: { id: true, title: true } },
+      },
     })
     return (record as unknown as AttendanceSession & { church?: { name: string } }) || null
   }

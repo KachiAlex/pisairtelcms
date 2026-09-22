@@ -15,6 +15,7 @@ function sessionSummary(session: any) {
     startAt: session.startAt,
     location: session.location,
     churchName: session.church?.name || null,
+    meetingTitle: session.meeting?.title || null,
   }
 }
 

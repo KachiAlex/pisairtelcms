@@ -10,6 +10,7 @@ type SessionInfo = {
   startAt: string
   location?: string | null
   churchName?: string | null
+  meetingTitle?: string | null
 }
 
 export default function CheckInClient({
@@ -68,6 +69,9 @@ export default function CheckInClient({
           {new Date(session.startAt).toLocaleString()}
           {session.location ? ` • ${session.location}` : ''}
         </p>
+        {session.meetingTitle && (
+          <p className="mt-1 text-xs font-medium text-indigo-600">Part of: {session.meetingTitle}</p>
+        )}
 
         {state === 'done' ? (
           <div className="mt-8">
