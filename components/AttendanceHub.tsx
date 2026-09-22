@@ -134,7 +134,25 @@ export default function AttendanceHub({ isManager }: { isManager: boolean }) {
       const res = await fetch(`/api/attendance/sessions${queryString}`, { cache: 'no-store' })
       if (!res.ok) throw new Error(await readApiError(res))
       const json = await res.json()
-      setSessions(json.sessions || [])
+      const list: AttendanceSession[] = json.sessions || []
+      setSessions(list)
+
+      // Deep link: /attendance?session={id} auto-selects the session
+      const wanted = new URLSearchParams(window.location.search).get('session')
+      if (wanted) {
+        const found = list.find((s) => s.id === wanted)
+        if (found) {
+          setSelectedSession(found)
+          setHeadcount({
+            total: found.headcount?.total?.toString?.() || '',
+            men: found.headcount?.men?.toString?.() || '',
+            women: found.headcount?.women?.toString?.() || '',
+            children: found.headcount?.children?.toString?.() || '',
+            firstTimers: found.headcount?.firstTimers?.toString?.() || '',
+          })
+          loadRecords(found.id)
+        }
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to load')
     } finally {

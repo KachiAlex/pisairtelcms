@@ -72,6 +72,7 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
 
   const [showCreate, setShowCreate] = useState(false)
   const [editingMeetingId, setEditingMeetingId] = useState<string | null>(null)
+  const [attBusy, setAttBusy] = useState<string | null>(null)
 
   const [form, setForm] = useState({
     title: '',
@@ -254,6 +255,54 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
       setError(e?.message || 'Failed to create meeting')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const openAttendance = async (o: MeetingOccurrence) => {
+    setAttBusy(o.id)
+    setError(null)
+    try {
+      // Reuse an existing session for this occurrence when one exists
+      const start = new Date(o.startAt)
+      const qs = new URLSearchParams({
+        meetingId: String(o.seriesId),
+        start: new Date(start.getTime() - 12 * 3600 * 1000).toISOString(),
+        end: new Date(start.getTime() + 12 * 3600 * 1000).toISOString(),
+      })
+      const listRes = await fetch(`/api/attendance/sessions?${qs}`, { cache: 'no-store' })
+      if (listRes.ok) {
+        const j = await listRes.json().catch(() => null)
+        const existing = (j?.sessions || []).find((s: any) => s.meeting?.id === o.seriesId || s.meetingId === o.seriesId)
+        if (existing) {
+          window.location.href = `/attendance?session=${existing.id}`
+          return
+        }
+      }
+
+      // Otherwise create the attendance session anchored to this meeting
+      const hasVideo = !!(o.jitsi?.joinUrl || o.google?.meetUrl)
+      const res = await fetch('/api/attendance/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          meetingId: o.seriesId,
+          branchId: o.branchId || null,
+          title: o.title,
+          type: 'MEETING',
+          mode: hasVideo ? 'HYBRID' : 'OFFLINE',
+          startAt: new Date(o.startAt).toISOString(),
+          endAt: o.endAt ? new Date(o.endAt).toISOString() : null,
+        }),
+      })
+      if (!res.ok) throw new Error(await readApiError(res))
+      const created = await res.json().catch(() => null)
+      window.location.href = created?.session?.id
+        ? `/attendance?session=${created.session.id}`
+        : '/attendance'
+    } catch (e: any) {
+      setError(e?.message || 'Failed to open attendance')
+    } finally {
+      setAttBusy(null)
     }
   }
 
@@ -484,6 +533,14 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
                   </div>
                   {canManageMeetings && (
                     <div className="shrink-0 flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={attBusy === o.id}
+                        onClick={() => openAttendance(o)}
+                        className="px-3 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-semibold disabled:opacity-60"
+                      >
+                        {attBusy === o.id ? 'Opening…' : 'Take attendance'}
+                      </button>
                       <button
                         type="button"
                         onClick={() => openEdit(o)}

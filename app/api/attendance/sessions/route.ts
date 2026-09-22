@@ -17,6 +17,7 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const branchIdParam = searchParams.get('branchId')
+    const meetingIdParam = searchParams.get('meetingId')
     const start = searchParams.get('start')
     const end = searchParams.get('end')
 
@@ -27,6 +28,7 @@ export async function GET(request: Request) {
 
     const sessions = await AttendanceService.listSessionsByChurch(church.id, {
       branchId: effectiveBranchId,
+      meetingId: meetingIdParam || undefined,
       startAt: start ? new Date(start) : undefined,
       endAt: end ? new Date(end) : undefined,
       limit: 200,

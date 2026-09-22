@@ -69,6 +69,7 @@ export class AttendanceService {
     churchId: string,
     options?: {
       branchId?: string | null
+      meetingId?: string
       startAt?: Date
       endAt?: Date
       limit?: number
@@ -78,6 +79,7 @@ export class AttendanceService {
       where: {
         churchId,
         branchId: options?.branchId ?? undefined,
+        meetingId: options?.meetingId ?? undefined,
         startAt: {
           gte: options?.startAt,
           lte: options?.endAt,
