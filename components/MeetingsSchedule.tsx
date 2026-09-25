@@ -451,8 +451,8 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
     <div className="space-y-6">
       {canChooseBranchScope && (
         <div className="bg-white rounded-xl border p-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
+          <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
+            <div className="min-w-0">
               <div className="font-semibold text-gray-900">Google Calendar</div>
               <div className="text-sm text-gray-600 mt-1">
                 {googleStatus?.connected
@@ -472,8 +472,8 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
         </div>
       )}
 
-      <div className="flex items-start justify-between gap-4">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
+        <div className="min-w-0">
           <h2 className="text-lg font-semibold">Scheduled Meetings</h2>
           <p className="text-sm text-gray-600 mt-1">
             Upcoming meetings for your church{me?.branchId ? ' (filtered by branch scope)' : ''}.
@@ -504,12 +504,12 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
           <div className="space-y-3">
             {occurrences.map((o) => (
               <div key={o.id} className="border rounded-lg p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                  <div className="min-w-0">
                     <div className="font-semibold text-gray-900">{o.title}</div>
                     <div className="text-sm text-gray-600 mt-1">
-                      {new Date(o.startAt).toLocaleString()}
-                      {o.endAt ? ` – ${new Date(o.endAt).toLocaleString()}` : ''}
+                      {new Date(o.startAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                      {o.endAt ? ` – ${new Date(o.endAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}` : ''}
                       {o.branchId ? ` • Branch: ${o.branchId}` : ' • All branches'}
                     </div>
                     {o.description && <div className="text-sm text-gray-700 mt-2">{o.description}</div>}
@@ -535,7 +535,7 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
                     {recurrenceSummary(o)}
                   </div>
                   {canManageMeetings && (
-                    <div className="shrink-0 flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
                       <button
                         type="button"
                         disabled={attBusy === o.id}
