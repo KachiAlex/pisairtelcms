@@ -73,6 +73,7 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
   const [showCreate, setShowCreate] = useState(false)
   const [editingMeetingId, setEditingMeetingId] = useState<string | null>(null)
   const [attBusy, setAttBusy] = useState<string | null>(null)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
 
   const [form, setForm] = useState({
     title: '',
@@ -255,6 +256,28 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
       setError(e?.message || 'Failed to create meeting')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const shareMeeting = async (o: MeetingOccurrence) => {
+    // The join redirect mints a Jitsi JWT server-side, so it only works for
+    // logged-in members of this church — safe to share internally.
+    const joinUrl = o.jitsi?.joinUrl
+      ? `${window.location.origin}/api/meetings/${o.seriesId}/join`
+      : o.google?.meetUrl || null
+    const when = new Date(o.startAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    const text = `${o.title} — ${when}${joinUrl ? `\nJoin: ${joinUrl}` : ''}`
+
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: o.title, text, url: joinUrl || `${window.location.origin}/meetings` })
+        return
+      }
+      await navigator.clipboard.writeText(joinUrl ? `${text}` : text)
+      setCopiedId(o.id)
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch {
+      // User dismissed the share sheet or clipboard blocked — no-op
     }
   }
 
@@ -533,6 +556,16 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
                     </div>
                   )}
                     {recurrenceSummary(o)}
+                    <button
+                      type="button"
+                      onClick={() => shareMeeting(o)}
+                      className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-gray-600 hover:text-primary-700 transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                      </svg>
+                      {copiedId === o.id ? 'Link copied!' : 'Share'}
+                    </button>
                   </div>
                   {canManageMeetings && (
                     <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
