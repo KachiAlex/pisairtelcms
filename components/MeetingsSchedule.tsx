@@ -274,7 +274,8 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
         const j = await listRes.json().catch(() => null)
         const existing = (j?.sessions || []).find((s: any) => s.meeting?.id === o.seriesId || s.meetingId === o.seriesId)
         if (existing) {
-          window.location.href = `/attendance?session=${existing.id}`
+          // Straight to the live QR display — one click, code on screen
+          window.open(`/attendance/live/${existing.id}`, '_blank')
           return
         }
       }
@@ -296,9 +297,11 @@ export default function MeetingsSchedule({ canManageMeetings }: { canManageMeeti
       })
       if (!res.ok) throw new Error(await readApiError(res))
       const created = await res.json().catch(() => null)
-      window.location.href = created?.session?.id
-        ? `/attendance?session=${created.session.id}`
-        : '/attendance'
+      if (created?.session?.id) {
+        window.open(`/attendance/live/${created.session.id}`, '_blank')
+      } else {
+        window.location.href = '/attendance'
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to open attendance')
     } finally {

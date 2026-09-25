@@ -140,7 +140,15 @@ export default function AttendanceHub({ isManager }: { isManager: boolean }) {
       // Deep link: /attendance?session={id} auto-selects the session
       const wanted = new URLSearchParams(window.location.search).get('session')
       if (wanted) {
-        const found = list.find((s) => s.id === wanted)
+        let found: AttendanceSession | undefined = list.find((s) => s.id === wanted)
+        if (!found) {
+          // Branch/date filters may hide it — fetch directly
+          const r = await fetch(`/api/attendance/sessions/${wanted}`, { cache: 'no-store' })
+          if (r.ok) {
+            const j = await r.json().catch(() => null)
+            if (j?.session) found = j.session
+          }
+        }
         if (found) {
           setSelectedSession(found)
           setHeadcount({

@@ -29,6 +29,19 @@ async function loadAuthorizedSession(sessionId: string) {
   return { session }
 }
 
+/**
+ * Canonical public origin for QR links. request.url reflects whatever
+ * host the admin browsed (IP:port, internal hostname) — phones can't
+ * reach those, so always prefer the configured public URL.
+ */
+function publicOrigin(request: Request): string {
+  const configured = process.env.APP_PUBLIC_URL || process.env.NEXTAUTH_URL
+  if (configured) return configured.replace(/\/$/, '')
+  const proto = request.headers.get('x-forwarded-proto') || 'https'
+  const host = request.headers.get('x-forwarded-host') || request.headers.get('host')
+  return host ? `${proto}://${host}` : new URL(request.url).origin
+}
+
 function buildPayload(sessionId: string, qrToken: string, origin: string, qrPngDataUrl?: string) {
   const checkInUrl = `${origin}/checkin/${qrToken}`
   const live = currentLiveCode(qrToken)
@@ -51,7 +64,7 @@ export async function GET(request: Request, { params }: { params: { sessionId: s
   const qrToken = await AttendanceService.ensureQrToken(params.sessionId)
   if (!qrToken) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const origin = new URL(request.url).origin
+  const origin = publicOrigin(request)
   const { searchParams } = new URL(request.url)
 
   // Lightweight mode for the rotating kiosk display — no PNG rendering.
@@ -73,7 +86,7 @@ export async function POST(request: Request, { params }: { params: { sessionId: 
   if (result.error) return result.error
 
   const qrToken = await AttendanceService.regenerateQrToken(params.sessionId)
-  const origin = new URL(request.url).origin
+  const origin = publicOrigin(request)
   const qrPngDataUrl = await QRCode.toDataURL(`${origin}/checkin/${qrToken}`, {
     width: 640,
     margin: 2,
