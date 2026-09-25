@@ -617,7 +617,7 @@ export default function AccountingHub({ isAdmin }: { isAdmin: boolean }) {
           <div className="text-gray-600">Loading...</div>
         ) : (
           <div className="max-h-[560px] overflow-auto border rounded-lg">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[560px] text-sm">
                 <thead className="bg-gray-50 text-xs text-gray-600 sticky top-0">
                   <tr>
                     <th className="text-left px-3 py-2 font-semibold">Date</th>

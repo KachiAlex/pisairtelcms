@@ -9,6 +9,59 @@
   }
 }
 
+/* ── Mobile baseline ─────────────────────────────────────────── */
+
+/* Stop page-level sideways scroll; inner tables still scroll in
+   their own overflow-x-auto containers */
+html, body {
+  overflow-x: clip;
+}
+
+/* Kill the grey tap flash on iOS/Android */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Momentum scrolling for horizontal table/card containers */
+@media (max-width: 1023px) {
+  .overflow-x-auto, .overflow-y-auto {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* hide thin scrollbar on mobile, swipe suffices */
+  }
+
+  /* iOS Safari zooms any input under 16px — prevent it globally */
+  input, select, textarea {
+    font-size: 16px;
+  }
+
+  /* Comfortable touch targets for primary actions */
+  button, [role="button"], .btn-primary {
+    touch-action: manipulation;
+  }
+}
+
+/* Scale oversized desktop headings down on phones without
+   touching every page — stat values and emoji keep their size */
+@media (max-width: 639px) {
+  h1.text-3xl, h1.text-4xl, h2.text-3xl {
+    font-size: 1.5rem;
+    line-height: 2rem;
+  }
+}
+
+/* iPhone safe-area helpers */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.mb-safe {
+  margin-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Modals/drawers shouldn't fight the browser's rubber-band scroll */
+.overscroll-none-y {
+  overscroll-behavior-y: none;
+}
+
 @keyframes floatA {
   0%, 100% { transform: translate(0, 0) scale(1); }
   50% { transform: translate(-30px, 40px) scale(1.08); }
