@@ -138,12 +138,12 @@ export class AttendanceService {
     return records as unknown as AttendanceRecord[]
   }
 
-  static async findSessionByQrToken(qrToken: string): Promise<(AttendanceSession & { church?: { name: string }; meeting?: { id: string; title: string } | null }) | null> {
+  static async findSessionByQrToken(qrToken: string): Promise<(AttendanceSession & { church?: { name: string }; meeting?: { id: string; title: string; jitsi?: any; google?: any } | null }) | null> {
     const record = await prisma.attendanceSession.findUnique({
       where: { qrToken },
       include: {
         church: { select: { name: true } },
-        meeting: { select: { id: true, title: true } },
+        meeting: { select: { id: true, title: true, jitsi: true, google: true } },
       },
     })
     return (record as unknown as AttendanceSession & { church?: { name: string } }) || null

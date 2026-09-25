@@ -30,7 +30,10 @@ export default async function LiveCheckInPage({
 }) {
   const session = await prisma.attendanceSession.findUnique({
     where: { id: params.sessionId },
-    include: { church: { select: { name: true } } },
+    include: {
+      church: { select: { name: true } },
+      meeting: { select: { id: true, title: true, jitsi: true, google: true } },
+    },
   })
   if (!session?.qrToken || !verifyLiveCode(session.qrToken, params.code)) {
     return <InvalidCard message="This code has rotated — please scan the QR code currently shown on screen." />
@@ -53,6 +56,11 @@ export default async function LiveCheckInPage({
         startAt: session.startAt.toISOString(),
         location: session.location,
         churchName: session.church?.name || null,
+        meetingTitle: (session as any).meeting?.title || null,
+        joinUrl:
+          (session.mode === 'ONLINE' || session.mode === 'HYBRID')
+            ? ((session as any).meeting?.jitsi?.joinUrl || (session as any).meeting?.google?.meetUrl || null)
+            : null,
       }}
       postUrl={`/api/checkin/live/${params.sessionId}/${params.code}`}
       userName={userName}

@@ -13,7 +13,7 @@ async function resolveSession(sessionId: string, code: string) {
     where: { id: sessionId },
     include: {
       church: { select: { name: true } },
-      meeting: { select: { id: true, title: true } },
+      meeting: { select: { id: true, title: true, jitsi: true, google: true } },
     },
   })
   if (!session?.qrToken || !verifyLiveCode(session.qrToken, code)) {
@@ -32,6 +32,10 @@ function sessionSummary(session: any) {
     location: session.location,
     churchName: session.church?.name || null,
     meetingTitle: session.meeting?.title || null,
+    joinUrl:
+      session.mode === 'ONLINE' || session.mode === 'HYBRID'
+        ? (session.meeting as any)?.jitsi?.joinUrl || (session.meeting as any)?.google?.meetUrl || null
+        : null,
   }
 }
 

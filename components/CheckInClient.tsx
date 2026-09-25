@@ -11,6 +11,7 @@ type SessionInfo = {
   location?: string | null
   churchName?: string | null
   meetingTitle?: string | null
+  joinUrl?: string | null
 }
 
 export default function CheckInClient({
@@ -84,6 +85,16 @@ export default function CheckInClient({
               {wasAlready ? 'You were already counted' : "You're counted!"}
             </p>
             <p className="mt-1 text-sm text-gray-500">Welcome to {session.title}.</p>
+            {session.joinUrl && (
+              <a
+                href={session.joinUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-4 inline-block rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
+              >
+                Join the meeting online →
+              </a>
+            )}
           </div>
         ) : (
           <div className="mt-8 space-y-4">

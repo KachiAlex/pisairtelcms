@@ -5,6 +5,8 @@ import { guardApi } from '@/lib/api-guard'
 import { AttendanceService } from '@/lib/services/attendance-service'
 import { PermissionGrantService } from '@/lib/services/permission-grant-service'
 import { UserService } from '@/lib/services/user-service'
+import { MeetingService } from '@/lib/services/meeting-service'
+import { JitsiService } from '@/lib/services/jitsi-service'
 import { prisma } from '@/lib/prisma'
 
 export async function GET(request: Request) {
@@ -76,9 +78,10 @@ export async function POST(request: Request) {
     }
 
     // A session may be anchored to a meeting — it must belong to this church
-    if (meetingId) {
+    let effectiveMeetingId = meetingId ? String(meetingId) : null
+    if (effectiveMeetingId) {
       const meeting = await prisma.meeting.findUnique({
-        where: { id: String(meetingId) },
+        where: { id: effectiveMeetingId },
         select: { churchId: true },
       })
       if (!meeting || meeting.churchId !== church.id) {
@@ -102,10 +105,31 @@ export async function POST(request: Request) {
       }
     }
 
+    // Standalone sessions also get a Meeting so they surface in the
+    // Meetings tab — with a Jitsi join link for ONLINE/HYBRID sessions.
+    if (!effectiveMeetingId) {
+      const meeting = await MeetingService.create({
+        churchId: church.id,
+        createdBy: userId,
+        branchId: effectiveBranchId,
+        title,
+        startAt: new Date(startAt),
+        endAt: endAt ? new Date(endAt) : undefined,
+      })
+      effectiveMeetingId = meeting.id
+
+      if (mode === 'ONLINE' || mode === 'HYBRID') {
+        await MeetingService.updateJitsi({
+          meetingId: meeting.id,
+          jitsi: JitsiService.createRoom(meeting.id),
+        })
+      }
+    }
+
     const created = await AttendanceService.createSession({
       churchId: church.id,
       branchId: effectiveBranchId || undefined,
-      meetingId: meetingId ? String(meetingId) : undefined,
+      meetingId: effectiveMeetingId,
       title,
       type,
       mode,
