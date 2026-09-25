@@ -56,14 +56,6 @@ interface ShareUnit {
   myRole?: string
 }
 
-type ChannelShortcut = {
-  id: string
-  label: string
-  description: string
-  href: string
-  accent: string
-}
-
 export default function CommunityFeed() {
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
@@ -93,6 +85,9 @@ export default function CommunityFeed() {
   const [activeFeedFilter, setActiveFeedFilter] = useState<'all' | 'Update' | 'Testimony' | 'Announcement' | 'Prayer Request'>('all')
   const [feedRefreshing, setFeedRefreshing] = useState(false)
   const [hasLoadedPosts, setHasLoadedPosts] = useState(false)
+
+  const [showBroadcast, setShowBroadcast] = useState(false)
+  const [broadcastTargets, setBroadcastTargets] = useState<{ departments: { id: string; name: string }[]; groups: { id: string; name: string; type: string }[] }>({ departments: [], groups: [] })
 
   const [openCommentsPostId, setOpenCommentsPostId] = useState<string | null>(null)
   const [commentsByPostId, setCommentsByPostId] = useState<Record<string, Comment[]>>({})
@@ -277,7 +272,24 @@ export default function CommunityFeed() {
   const [broadcastSubmitting, setBroadcastSubmitting] = useState(false)
   const [broadcastError, setBroadcastError] = useState('')
   const [broadcastSuccess, setBroadcastSuccess] = useState('')
-  
+
+  const toggleBroadcast = async () => {
+    const next = !showBroadcast
+    setShowBroadcast(next)
+    if (next && broadcastTargets.departments.length === 0 && broadcastTargets.groups.length === 0) {
+      try {
+        const res = await fetch('/api/messages/broadcast/targets')
+        if (res.ok) {
+          const data = await res.json()
+          setBroadcastTargets({
+            departments: data?.departments || [],
+            groups: data?.groups || [],
+          })
+        }
+      } catch {}
+    }
+  }
+
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const loadPosts = useCallback(async () => {
@@ -480,70 +492,27 @@ export default function CommunityFeed() {
     { value: 'Prayer Request', icon: '🙏', color: 'bg-green-50 text-green-700' },
   ]
 
-  const shortcuts: ChannelShortcut[] = [
-    {
-      id: 'groups',
-      label: 'My Groups',
-      description: 'Jump to your active group hub to continue conversations.',
-      href: '/groups',
-      accent: 'from-cyan-500/80 via-teal-400/80 to-sky-500/80',
-    },
-    {
-      id: 'broadcasts',
-      label: 'Broadcast Center',
-      description: 'Review sent announcements and engagement metrics.',
-      href: '#broadcast',
-      accent: 'from-amber-500/80 via-orange-400/80 to-orange-600/80',
-    },
-    {
-      id: 'messages',
-      label: 'Direct Messages',
-      description: 'Coordinate privately with leaders and members.',
-      href: '/dashboard/messages',
-      accent: 'from-purple-500/80 via-indigo-500/80 to-blue-500/80',
-    },
-  ]
-
   return (
-    <div className="container mx-auto px-4 py-6 max-w-5xl space-y-8">
-      {/* Summary strip */}
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-500">Inter-group channels</p>
-          <p className="text-lg font-semibold text-gray-900">Community Broadcasts</p>
-          <p className="text-sm text-gray-600">Share announcements to all units or target roles.</p>
-        </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-500">Feed filter</p>
-          <p className="text-lg font-semibold text-gray-900">{feedFilters.find((f) => f.key === activeFeedFilter)?.label}</p>
-          <p className="text-sm text-gray-600">{feedRefreshing ? 'Refreshing…' : hasLoadedPosts ? 'Up to date' : 'Fetching posts'}</p>
-        </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-xs uppercase tracking-wide text-gray-500">Shared to groups</p>
-          <p className="text-lg font-semibold text-gray-900">{shareUnits.length || '—'}</p>
-          <p className="text-sm text-gray-600">Units you’re currently a part of.</p>
-        </div>
-      </div>
-
-      {/* Channel shortcuts */}
-      <div className="grid gap-4 md:grid-cols-3">
-        {shortcuts.map((shortcut) => (
-          <a
-            key={shortcut.id}
-            href={shortcut.href}
-            className="group relative overflow-hidden rounded-xl shadow bg-white hover:-translate-y-0.5 transition"
-          >
-            <div className="absolute inset-0 opacity-70 bg-gradient-to-br" style={{ backgroundImage: `linear-gradient(to bottom right, rgb(var(--tw-color-${shortcut.accent}))` }} />
-            <div className="relative p-5 space-y-2">
-              <p className="text-xs uppercase tracking-wide text-gray-200">{shortcut.label}</p>
-              <p className="text-sm text-gray-100">{shortcut.description}</p>
-            </div>
-          </a>
-        ))}
-      </div>
-
-      {/* Admin Broadcast Composer */}
+    <div className="container mx-auto px-4 py-6 max-w-5xl space-y-6">
+      {/* Admin broadcast toggle */}
       {isAdmin && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={toggleBroadcast}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+              showBroadcast
+                ? 'bg-primary-600 text-white hover:bg-primary-700'
+                : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            📣 {showBroadcast ? 'Close broadcast' : 'Broadcast'}
+          </button>
+        </div>
+      )}
+
+      {/* Admin Broadcast Panel — collapsed by default */}
+      {isAdmin && showBroadcast && (
         <div id="broadcast" className="bg-white rounded-xl shadow-md p-6">
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -620,22 +589,34 @@ export default function CommunityFeed() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Department ID (optional)</label>
-                <input
+                <label className="block text-sm font-medium text-gray-700 mb-1">Department (optional)</label>
+                <select
                   value={broadcastTargetDepartmentId}
                   onChange={(e) => setBroadcastTargetDepartmentId(e.target.value)}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2"
-                  placeholder="dept_123"
-                />
+                >
+                  <option value="">All departments</option>
+                  {broadcastTargets.departments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Group ID (optional)</label>
-                <input
+                <label className="block text-sm font-medium text-gray-700 mb-1">Group (optional)</label>
+                <select
                   value={broadcastTargetGroupId}
                   onChange={(e) => setBroadcastTargetGroupId(e.target.value)}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2"
-                  placeholder="group_456"
-                />
+                >
+                  <option value="">All groups</option>
+                  {broadcastTargets.groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}{g.type ? ` · ${g.type}` : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
             <div className="flex justify-end gap-2">
@@ -665,25 +646,6 @@ export default function CommunityFeed() {
           </form>
         </div>
       )}
-
-      {/* Feed filter bar */}
-      <div className="bg-white rounded-xl shadow-md p-4 flex flex-wrap gap-2 items-center">
-        <div className="text-sm font-semibold text-gray-700 pr-2">Community Feed</div>
-        {feedFilters.map((filter) => (
-          <button
-            key={filter.key}
-            onClick={() => setActiveFeedFilter(filter.key)}
-            className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${
-              activeFeedFilter === filter.key ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            {filter.label}
-          </button>
-        ))}
-        <div className="ml-auto text-xs text-gray-500">
-          Filter applied: <span className="font-semibold text-gray-700">{feedFilters.find((f) => f.key === activeFeedFilter)?.label}</span>
-        </div>
-      </div>
 
       {/* Create Post Box */}
       <div className="bg-white rounded-xl shadow-md p-6">
@@ -810,6 +772,21 @@ export default function CommunityFeed() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Feed filter bar — slim pills only */}
+      <div className="bg-white rounded-xl shadow-sm px-4 py-3 flex flex-wrap gap-2 items-center overflow-x-auto">
+        {feedFilters.map((filter) => (
+          <button
+            key={filter.key}
+            onClick={() => setActiveFeedFilter(filter.key)}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold transition whitespace-nowrap ${
+              activeFeedFilter === filter.key ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            {filter.label}
+          </button>
+        ))}
       </div>
 
       {/* Posts Feed */}
