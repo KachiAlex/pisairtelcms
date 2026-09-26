@@ -142,7 +142,8 @@ export async function checkUsageLimit(
 
   const subscription = await SubscriptionService.findByChurch(churchId)
   if (!subscription) {
-    return { allowed: false, current: 0 }
+    // Lenient backfill — a missing row must not hard-lock legacy churches.
+    return { allowed: true, current: 0 }
   }
 
   const limits = await getPlanLimits(subscription.planId)
@@ -197,6 +198,32 @@ export async function isSubscriptionActive(churchId: string): Promise<boolean> {
 }
 
 /**
+ * Enforcement-time activity check used by guardApi and write endpoints.
+ *
+ * - Missing Subscription row: ALLOW (lenient backfill — legacy churches
+ *   created before subscriptions existed must not hard-lock; the superadmin
+ *   can attach a plan later).
+ * - SUSPENDED / CANCELLED: always DENY, even on $0 plans.
+ * - Expired TRIAL/ACTIVE on a $0 plan: ALLOW (a free plan can't lapse).
+ * - Otherwise honor isSubscriptionActive.
+ */
+export async function isChurchSubscriptionActive(churchId: string): Promise<boolean> {
+  const subscription = await SubscriptionService.findByChurch(churchId)
+
+  if (!subscription) return true
+
+  if (subscription.status === 'SUSPENDED' || subscription.status === 'CANCELLED') {
+    return false
+  }
+
+  if (await isSubscriptionActive(churchId)) return true
+
+  const plan = await SubscriptionPlanService.findById(subscription.planId)
+  const price = typeof plan?.price === 'number' ? plan.price : Number(plan?.price ?? 0)
+  return price <= 0
+}
+
+/**
  * Get subscription status with details
  */
 export async function getSubscriptionStatus(churchId: string) {
@@ -219,8 +246,11 @@ export async function getSubscriptionStatus(churchId: string) {
 
   const planPrice = typeof plan?.price === 'number' ? plan.price : Number(plan?.price ?? 0)
   const isFreePlan = planPrice <= 0
+  // A suspended/cancelled church is never "active" — the free-plan bypass
+  // only covers lifecycle expiry, not an explicit termination.
+  const terminated = subscription.status === 'SUSPENDED' || subscription.status === 'CANCELLED'
   const baseActive = await isSubscriptionActive(churchId)
-  const active = baseActive || isFreePlan
+  const active = !terminated && (baseActive || isFreePlan)
 
   // Calculate current billing period
   const now = new Date()
@@ -242,7 +272,7 @@ export async function getSubscriptionStatus(churchId: string) {
   }
 
   // Transform subscription to include required fields
-  const normalizedStatus = isFreePlan ? 'ACTIVE' : subscription.status
+  const normalizedStatus = terminated ? subscription.status : (isFreePlan ? 'ACTIVE' : subscription.status)
   const subscriptionWithPeriod = {
     ...subscription,
     status: normalizedStatus,

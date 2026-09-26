@@ -192,9 +192,16 @@ export async function POST(request: Request) {
               return failProcessing('webhook.flutterwave.subscription_not_found', { targetChurchId })
             }
 
+            const now = new Date()
+            const periodEnd = (plan as any).billingCycle === 'yearly'
+              ? new Date(now.getFullYear() + 1, now.getMonth(), now.getDate())
+              : new Date(now.getFullYear(), now.getMonth() + 1, now.getDate())
+
             await SubscriptionService.update(subscription.id, {
               planId: plan.id,
               status: 'ACTIVE',
+              startDate: now,
+              endDate: periodEnd,
             })
 
             await SubscriptionPaymentService.markApplied(payment.id)

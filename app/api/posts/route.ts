@@ -6,6 +6,7 @@ import { authOptions } from '@/lib/auth-options'
 import { PostService } from '@/lib/services/post-service'
 import { UserService } from '@/lib/services/user-service'
 import { getCurrentChurch } from '@/lib/church-context'
+import { isChurchSubscriptionActive } from '@/lib/subscription'
 import { prisma } from '@/lib/prisma'
 
 export async function GET(request: Request) {
@@ -111,6 +112,13 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: 'No church selected' },
         { status: 400 }
+      )
+    }
+
+    if (!(await isChurchSubscriptionActive(church.id))) {
+      return NextResponse.json(
+        { error: 'Subscription inactive', message: 'This church’s subscription is suspended, cancelled, or expired.' },
+        { status: 402 }
       )
     }
 

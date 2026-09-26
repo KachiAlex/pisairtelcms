@@ -68,6 +68,8 @@ export async function POST(request: Request) {
   const guarded = await guardApi({
     requireChurch: true,
     allowedRoles: ['ADMIN', 'SUPER_ADMIN', 'PASTOR', 'BRANCH_ADMIN'],
+    requireActiveSubscription: true,
+    denyImpersonation: true,
   })
   if (!guarded.ok) return guarded.response
 

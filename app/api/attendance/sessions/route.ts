@@ -64,6 +64,8 @@ export async function POST(request: Request) {
       requireChurch: true,
       allowedRoles: ['ADMIN', 'SUPER_ADMIN', 'BRANCH_ADMIN', 'PASTOR'],
       allowedPermissions: ['manage_attendance'],
+      requireActiveSubscription: true,
+      denyImpersonation: true,
     })
     if (!guarded.ok) return guarded.response
 

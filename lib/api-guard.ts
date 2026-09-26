@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { authOptions } from '@/lib/auth-options'
 import { getCurrentChurch } from '@/lib/church-context'
 import { PermissionGrantService } from '@/lib/services/permission-grant-service'
+import { isChurchSubscriptionActive } from '@/lib/subscription'
 import { UserRole } from '@/types'
 
 export type ApiGuardContext = {
@@ -12,6 +13,8 @@ export type ApiGuardContext = {
   church?: any
   /** True when access was granted via a PermissionGrant rather than the role matrix */
   viaGrant?: boolean
+  /** True when a SUPER_ADMIN resolved another tenant's church via the switch cookie */
+  impersonating?: boolean
 }
 
 export type ApiGuardOptions = {
@@ -24,6 +27,18 @@ export type ApiGuardOptions = {
    * 'manage_giving' scoped to a branch).
    */
   allowedPermissions?: string[]
+  /**
+   * Deny access when the tenant's subscription is suspended/cancelled or a
+   * paid plan has lapsed. Free plans and churches missing a Subscription row
+   * (legacy) remain allowed — see isChurchSubscriptionActive.
+   */
+  requireActiveSubscription?: boolean
+  /**
+   * Deny access when a SUPER_ADMIN is operating inside another tenant's
+   * church context via the switch cookie. Use on write endpoints — the
+   * platform admin manages tenants, not tenant-internal data.
+   */
+  denyImpersonation?: boolean
 }
 
 export async function guardApi(options: ApiGuardOptions = {}): Promise<{ ok: true; ctx: ApiGuardContext } | { ok: false; response: NextResponse }> {
@@ -67,6 +82,35 @@ export async function guardApi(options: ApiGuardOptions = {}): Promise<{ ok: tru
     }
   }
 
+  // SUPER_ADMINs have no churchId — any resolved church context is an
+  // impersonation via the switch cookie.
+  const impersonating = role === 'SUPER_ADMIN' && !!church
+  if (impersonating && options.denyImpersonation) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: 'Platform admins cannot modify tenant data' },
+        { status: 403 }
+      ),
+    }
+  }
+
+  if (church && options.requireActiveSubscription) {
+    const active = await isChurchSubscriptionActive(church.id)
+    if (!active) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          {
+            error: 'Subscription inactive',
+            message: 'This church’s subscription is suspended, cancelled, or expired. Contact your administrator to reactivate.',
+          },
+          { status: 402 }
+        ),
+      }
+    }
+  }
+
   return {
     ok: true,
     ctx: {
@@ -75,6 +119,7 @@ export async function guardApi(options: ApiGuardOptions = {}): Promise<{ ok: tru
       role,
       church,
       viaGrant,
+      impersonating,
     },
   }
 }

@@ -108,7 +108,11 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const guarded = await guardApi({ requireChurch: true })
+    const guarded = await guardApi({
+      requireChurch: true,
+      requireActiveSubscription: true,
+      denyImpersonation: true,
+    })
     if (!guarded.ok) return guarded.response
 
     const { session, userId, church } = guarded.ctx
@@ -119,6 +123,14 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: 'Insufficient permissions to create users' },
         { status: 403 }
+      )
+    }
+
+    const limit = await checkUsageLimit(church.id, 'maxUsers')
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: `Member limit reached (${limit.current}/${limit.limit}). Upgrade your plan to add more members.` },
+        { status: 402 }
       )
     }
 

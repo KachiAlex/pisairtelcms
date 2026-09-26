@@ -6,7 +6,7 @@ import { getServerSession } from 'next-auth'
 
 import { authOptions } from '@/lib/auth-options'
 import { getCurrentChurch } from '@/lib/church-context'
-import { checkUsageLimit } from '@/lib/subscription'
+import { checkUsageLimit, isChurchSubscriptionActive } from '@/lib/subscription'
 import { EventReminderService } from '@/lib/services/event-reminder-service'
 import { EventService, type Event } from '@/lib/services/event-service'
 import { EventRegistrationService, EventAttendanceService } from '@/lib/services/event-registration-service'
@@ -152,6 +152,21 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: 'No church selected' },
         { status: 400 }
+      )
+    }
+
+    if (!(await isChurchSubscriptionActive(church.id))) {
+      return NextResponse.json(
+        { error: 'Subscription inactive', message: 'This church’s subscription is suspended, cancelled, or expired.' },
+        { status: 402 }
+      )
+    }
+
+    const limit = await checkUsageLimit(church.id, 'maxEvents')
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: `Event limit reached this period (${limit.current}/${limit.limit}). Upgrade your plan for more.` },
+        { status: 402 }
       )
     }
 

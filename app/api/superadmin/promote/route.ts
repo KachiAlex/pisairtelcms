@@ -65,8 +65,9 @@ export async function POST(request: Request) {
       )
     }
 
-    // Update user role to SUPER_ADMIN
-    await UserService.update(user.id, { role: 'SUPER_ADMIN' } as any)
+    // Update user role to SUPER_ADMIN — detach from their tenant so the
+    // platform admin carries no tenant membership.
+    await UserService.update(user.id, { role: 'SUPER_ADMIN', churchId: null } as any)
 
     const updatedUser = await UserService.findById(user.id)
 

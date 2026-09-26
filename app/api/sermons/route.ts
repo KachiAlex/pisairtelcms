@@ -108,10 +108,23 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const guarded = await guardApi({ requireChurch: true, allowedRoles: ['ADMIN', 'SUPER_ADMIN', 'PASTOR'] })
+    const guarded = await guardApi({
+      requireChurch: true,
+      allowedRoles: ['ADMIN', 'SUPER_ADMIN', 'PASTOR'],
+      requireActiveSubscription: true,
+      denyImpersonation: true,
+    })
     if (!guarded.ok) return guarded.response
 
     const { userId, church } = guarded.ctx
+
+    const limit = await checkUsageLimit(church.id, 'maxSermons')
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: `Sermon limit reached (${limit.current}/${limit.limit}). Upgrade your plan to upload more.` },
+        { status: 402 }
+      )
+    }
 
     const body = await request.json()
     const {

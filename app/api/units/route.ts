@@ -2,6 +2,7 @@
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { guardApi } from '@/lib/api-guard'
+import { checkUsageLimit } from '@/lib/subscription'
 import { UnitService, UnitMembershipService } from '@/lib/services/unit-service'
 import { UnitTypeService } from '@/lib/services/unit-type-service'
 
@@ -21,10 +22,24 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const guarded = await guardApi({ requireChurch: true })
+  const guarded = await guardApi({
+    requireChurch: true,
+    requireActiveSubscription: true,
+    denyImpersonation: true,
+  })
   if (!guarded.ok) return guarded.response
 
   const { church, userId, role } = guarded.ctx
+
+  // Units are the effective groups/departments in this app — enforce the
+  // plan's group cap against unit creation.
+  const limit = await checkUsageLimit(church.id, 'maxGroups')
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: `Unit limit reached (${limit.current}/${limit.limit}). Upgrade your plan to create more.` },
+      { status: 402 }
+    )
+  }
   const body = await request.json()
 
   if (String(role) === 'MEMBER') {
