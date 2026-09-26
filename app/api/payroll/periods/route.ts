@@ -7,7 +7,7 @@ import { guardApi } from '@/lib/api-guard'
 
 export async function GET(request: Request) {
   try {
-    const guarded = await guardApi({ requireChurch: true, allowedRoles: ['ADMIN', 'PASTOR', 'SUPER_ADMIN'] })
+    const guarded = await guardApi({ requireChurch: true, allowedRoles: ['ADMIN', 'PASTOR', 'SUPER_ADMIN'], requirePlanFeature: 'payroll' })
     if (!guarded.ok) return guarded.response
 
     const { church } = guarded.ctx
@@ -49,7 +49,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const guarded = await guardApi({ requireChurch: true, allowedRoles: ['ADMIN', 'PASTOR', 'SUPER_ADMIN'] })
+    const guarded = await guardApi({ requireChurch: true, allowedRoles: ['ADMIN', 'PASTOR', 'SUPER_ADMIN'], requirePlanFeature: 'payroll' })
     if (!guarded.ok) return guarded.response
 
     const { church } = guarded.ctx

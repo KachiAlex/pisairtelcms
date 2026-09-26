@@ -11,7 +11,7 @@ export async function POST(
 ) {
   try {
     const { periodId } = await params
-    const guarded = await guardApi({ requireChurch: true, allowedRoles: ['ADMIN', 'PASTOR', 'SUPER_ADMIN'] })
+    const guarded = await guardApi({ requireChurch: true, allowedRoles: ['ADMIN', 'PASTOR', 'SUPER_ADMIN'], requirePlanFeature: 'payroll' })
     if (!guarded.ok) return guarded.response
 
     const { church } = guarded.ctx

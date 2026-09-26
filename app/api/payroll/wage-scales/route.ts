@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     const positionId = searchParams.get('positionId')
     const churchId = searchParams.get('churchId')
 
-    const guarded = await guardApi({ requireChurch: true, allowedRoles: ['ADMIN', 'PASTOR', 'SUPER_ADMIN'] })
+    const guarded = await guardApi({ requireChurch: true, allowedRoles: ['ADMIN', 'PASTOR', 'SUPER_ADMIN'], requirePlanFeature: 'payroll' })
     if (!guarded.ok) return guarded.response
 
     const { church } = guarded.ctx
@@ -64,7 +64,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const guarded = await guardApi({ requireChurch: true, allowedRoles: ['ADMIN', 'PASTOR', 'SUPER_ADMIN'] })
+    const guarded = await guardApi({ requireChurch: true, allowedRoles: ['ADMIN', 'PASTOR', 'SUPER_ADMIN'], requirePlanFeature: 'payroll' })
     if (!guarded.ok) return guarded.response
 
     const { church } = guarded.ctx

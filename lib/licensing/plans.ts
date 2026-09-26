@@ -34,6 +34,28 @@ export interface LicensingPlanConfig {
   billingCycle?: BillingCycle
 }
 
+/**
+ * Tier ranking used for feature gating. `free` covers the Free Trial plan
+ * and any plan whose code/tier can't be resolved (fails closed).
+ */
+export const PLAN_TIER_ORDER: Record<string, number> = {
+  free: 0,
+  starter: 1,
+  growth: 2,
+  enterprise: 3,
+  lifetime: 3,
+}
+
+/**
+ * Module-level features and the minimum tier required to use them.
+ * Checked by guardApi({ requirePlanFeature }) — keep keys machine-stable.
+ */
+export const PLAN_FEATURES: Record<string, keyof typeof PLAN_TIER_ORDER> = {
+  payroll: 'growth',
+  ai: 'growth',
+  'advanced-analytics': 'enterprise',
+}
+
 export const LICENSING_PLANS: LicensingPlanConfig[] = [
   {
     id: 'starter',
@@ -44,6 +66,14 @@ export const LICENSING_PLANS: LicensingPlanConfig[] = [
     priceMonthlyRange: { min: 29, max: 49 },
     priceAnnualRange: { min: 299, max: 499 },
     setupFeeRange: { min: 100, max: 300 },
+    limits: {
+      maxUsers: 200,
+      maxSermons: 100,
+      maxEvents: 25,
+      maxDepartments: 10,
+      maxGroups: 25,
+      maxStorageGB: 25,
+    },
     features: [
       'Membership + attendance tracking',
       'Announcements & messaging',
@@ -64,6 +94,14 @@ export const LICENSING_PLANS: LicensingPlanConfig[] = [
     priceMonthlyRange: { min: 99, max: 149 },
     priceAnnualRange: { min: 999, max: 1499 },
     setupFeeRange: { min: 300, max: 800 },
+    limits: {
+      maxUsers: 1500,
+      maxSermons: 500,
+      maxEvents: 100,
+      maxDepartments: 40,
+      maxGroups: 100,
+      maxStorageGB: 100,
+    },
     features: [
       'All Starter features',
       'First-timer + follow-up automation',

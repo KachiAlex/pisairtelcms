@@ -1,4 +1,5 @@
 import { SubscriptionService, SubscriptionPlanService, UsageMetricService } from './services/subscription-service'
+import { PLAN_TIER_ORDER, PLAN_FEATURES } from './licensing/plans'
 import { ChurchService } from './services/church-service'
 import { UserService } from './services/user-service'
 import { prisma } from './prisma'
@@ -221,6 +222,37 @@ export async function isChurchSubscriptionActive(churchId: string): Promise<bool
   const plan = await SubscriptionPlanService.findById(subscription.planId)
   const price = typeof plan?.price === 'number' ? plan.price : Number(plan?.price ?? 0)
   return price <= 0
+}
+
+/** Rank for a plan's tier — code from sync metadata first, type fallback. */
+function planTierRank(plan: any): number {
+  const code = String((plan?.firestoreData as any)?.code || '').toLowerCase()
+  if (code && PLAN_TIER_ORDER[code] !== undefined) return PLAN_TIER_ORDER[code]
+
+  const typeRank: Record<string, number> = { FREE: 0, BASIC: 1, PRO: 2, ENTERPRISE: 3 }
+  return typeRank[String(plan?.type || '').toUpperCase()] ?? 0
+}
+
+/**
+ * Feature gating by plan tier (PLAN_FEATURES maps feature → minimum tier).
+ * Lenient on missing subscription rows (legacy churches), denies on
+ * unknown tiers (fails closed at rank 0).
+ */
+export async function churchHasPlanFeature(churchId: string, feature: string): Promise<boolean> {
+  const minTier = PLAN_FEATURES[feature]
+  if (!minTier) return true // unknown feature key — nothing to gate
+
+  const subscription = await SubscriptionService.findByChurch(churchId)
+  if (!subscription) return true // lenient backfill, matches isChurchSubscriptionActive
+
+  const status = String(subscription.status || '').toUpperCase()
+  if (status === 'CANCELLED' || status === 'SUSPENDED' || status === 'EXPIRED') return false
+  if (status === 'TRIAL') return true // trial churches evaluate the full product
+
+  const plan = await SubscriptionPlanService.findById(subscription.planId)
+  if (!plan) return false
+
+  return planTierRank(plan) >= PLAN_TIER_ORDER[minTier]
 }
 
 /**

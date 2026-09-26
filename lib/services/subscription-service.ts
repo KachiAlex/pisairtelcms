@@ -44,6 +44,13 @@ export interface UsageMetric {
 }
 
 const PLAN_TYPES = ['FREE', 'BASIC', 'PRO', 'ENTERPRISE']
+
+// Licensing tiers map onto the coarser SubscriptionPlanType enum.
+const TIER_TO_PLAN_TYPE: Record<string, string> = {
+  STARTER: 'BASIC',
+  GROWTH: 'PRO',
+  ENTERPRISE: 'ENTERPRISE',
+}
 const SUBSCRIPTION_STATUSES = ['ACTIVE', 'TRIAL', 'EXPIRED', 'CANCELLED', 'SUSPENDED']
 
 // UsageTracking columns that back the legacy metricType keys
@@ -146,27 +153,30 @@ export class SubscriptionPlanService {
   }
 
   static async ensurePlanFromConfig(config: LicensingPlanConfig): Promise<SubscriptionPlan> {
+    const fields = {
+      name: config.name,
+      type: (TIER_TO_PLAN_TYPE[String(config.tier).toUpperCase()] ?? 'FREE') as any,
+      description: config.description,
+      price: config.priceMonthlyRange.min,
+      currency: 'USD',
+      maxUsers: config.limits?.maxUsers ?? null,
+      maxStorageGB: config.limits?.maxStorageGB ?? null,
+      maxSermons: config.limits?.maxSermons ?? null,
+      maxEvents: config.limits?.maxEvents ?? null,
+      maxDepartments: config.limits?.maxDepartments ?? null,
+      maxGroups: config.limits?.maxGroups ?? null,
+      features: config.features,
+      billingCycle: config.billingCycle ?? 'monthly',
+      firestoreData: { code: config.id },
+    }
     const record = await prisma.subscriptionPlan.upsert({
       where: { id: config.id },
       create: {
         id: config.id,
-        name: config.name,
-        type: (PLAN_TYPES.includes(String(config.tier).toUpperCase()) ? String(config.tier).toUpperCase() : 'FREE') as any,
-        description: config.description,
-        price: config.priceMonthlyRange.min,
-        currency: 'USD',
-        maxUsers: config.limits?.maxUsers,
-        maxStorageGB: config.limits?.maxStorageGB,
-        maxSermons: config.limits?.maxSermons,
-        maxEvents: config.limits?.maxEvents,
-        maxDepartments: config.limits?.maxDepartments,
-        maxGroups: config.limits?.maxGroups,
-        features: config.features,
-        billingCycle: config.billingCycle ?? 'monthly',
+        ...fields,
         trialDays: 30,
-        firestoreData: { code: config.id },
       },
-      update: {},
+      update: fields,
     })
     return withLegacy<SubscriptionPlan>(record)
   }

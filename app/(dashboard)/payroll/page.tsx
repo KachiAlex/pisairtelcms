@@ -3,7 +3,9 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth-options'
 import { requirePermissionMiddleware } from '@/lib/middleware/rbac'
 import PayrollDashboard from '@/components/PayrollDashboard'
+import UpgradeGate from '@/components/UpgradeGate'
 import { UserService } from '@/lib/services/user-service'
+import { churchHasPlanFeature } from '@/lib/subscription'
 
 export default async function PayrollPage() {
   const session = await getServerSession(authOptions)
@@ -18,6 +20,10 @@ export default async function PayrollPage() {
   // Check if user is staff member
   const user = await UserService.findById(userId)
   const isStaff = user?.isStaff || false
+
+  if (user?.churchId && !(await churchHasPlanFeature(user.churchId, 'payroll'))) {
+    return <UpgradeGate feature="payroll" />
+  }
 
   // Only allow admins or staff members
   if (role === 'MEMBER' && !isStaff) {

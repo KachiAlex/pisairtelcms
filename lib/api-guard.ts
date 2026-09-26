@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { authOptions } from '@/lib/auth-options'
 import { getCurrentChurch } from '@/lib/church-context'
 import { PermissionGrantService } from '@/lib/services/permission-grant-service'
-import { isChurchSubscriptionActive } from '@/lib/subscription'
+import { isChurchSubscriptionActive, churchHasPlanFeature } from '@/lib/subscription'
 import { UserRole } from '@/types'
 
 export type ApiGuardContext = {
@@ -39,6 +39,11 @@ export type ApiGuardOptions = {
    * platform admin manages tenants, not tenant-internal data.
    */
   denyImpersonation?: boolean
+  /**
+   * Require a plan-gated module feature (PLAN_FEATURES keys, e.g.
+   * 'payroll', 'ai'). Checks the church's subscription plan tier.
+   */
+  requirePlanFeature?: string
 }
 
 export async function guardApi(options: ApiGuardOptions = {}): Promise<{ ok: true; ctx: ApiGuardContext } | { ok: false; response: NextResponse }> {
@@ -104,6 +109,23 @@ export async function guardApi(options: ApiGuardOptions = {}): Promise<{ ok: tru
           {
             error: 'Subscription inactive',
             message: 'This church’s subscription is suspended, cancelled, or expired. Contact your administrator to reactivate.',
+          },
+          { status: 402 }
+        ),
+      }
+    }
+  }
+
+  if (church && options.requirePlanFeature) {
+    const allowed = await churchHasPlanFeature(church.id, options.requirePlanFeature)
+    if (!allowed) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          {
+            error: 'Plan feature not included',
+            feature: options.requirePlanFeature,
+            message: `This feature requires a higher plan. Upgrade in Subscription & Billing to unlock it.`,
           },
           { status: 402 }
         ),

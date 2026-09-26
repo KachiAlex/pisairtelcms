@@ -6,6 +6,7 @@ import { authOptions } from '@/lib/auth-options'
 import { getSpiritualCoachingResponse } from '@/lib/ai/openai'
 import { incrementUsage } from '@/lib/subscription'
 import { getCurrentChurch } from '@/lib/church-context'
+import { churchHasPlanFeature } from '@/lib/subscription'
 import { UserService } from '@/lib/services/user-service'
 import { AICoachingSessionService } from '@/lib/services/ai-service'
 
@@ -32,6 +33,13 @@ export async function POST(request: Request) {
     const recentSessions = await AICoachingSessionService.findByUser(userId, 5)
 
     const church = await getCurrentChurch(userId)
+
+    if (church && !(await churchHasPlanFeature(church.id, 'ai'))) {
+      return NextResponse.json(
+        { error: 'Plan feature not included', feature: 'ai', message: 'AI coaching requires the Growth plan or higher.' },
+        { status: 402 }
+      )
+    }
 
     // Track usage
     if (church) {

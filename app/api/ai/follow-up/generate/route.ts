@@ -7,12 +7,22 @@ import { getSpiritualCoachingResponse } from '@/lib/ai/openai'
 import { requirePermissionMiddleware } from '@/lib/middleware/rbac'
 import { UserService } from '@/lib/services/user-service'
 import { FollowUpService } from '@/lib/services/ai-service'
+import { churchHasPlanFeature } from '@/lib/subscription'
+import { getCurrentChurchId } from '@/lib/church-context'
 
 export async function POST(request: Request) {
   try {
-    const { error: permError } = await requirePermissionMiddleware('manage_roles')
+    const { error: permError, user: admin } = await requirePermissionMiddleware('manage_roles')
     if (permError) {
       return permError
+    }
+
+    const churchId = admin ? await getCurrentChurchId(admin.id) : null
+    if (churchId && !(await churchHasPlanFeature(churchId, 'ai'))) {
+      return NextResponse.json(
+        { error: 'Plan feature not included', feature: 'ai', message: 'AI follow-up generation requires the Growth plan or higher.' },
+        { status: 402 }
+      )
     }
 
     const body = await request.json()

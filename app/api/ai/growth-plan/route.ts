@@ -8,6 +8,8 @@ import { UserService } from '@/lib/services/user-service'
 import { ReadingPlanProgressService } from '@/lib/services/reading-plan-service'
 import { ReadingPlanService } from '@/lib/services/reading-plan-service'
 import { prisma } from '@/lib/prisma'
+import { getCurrentChurchId } from '@/lib/church-context'
+import { churchHasPlanFeature } from '@/lib/subscription'
 
 export async function POST(request: Request) {
   try {
@@ -19,6 +21,14 @@ export async function POST(request: Request) {
     const userId = (session.user as any).id
     const body = await request.json()
     const { goals, challenges } = body
+
+    const churchId = await getCurrentChurchId(userId)
+    if (churchId && !(await churchHasPlanFeature(churchId, 'ai'))) {
+      return NextResponse.json(
+        { error: 'Plan feature not included', feature: 'ai', message: 'AI features require the Growth plan or higher.' },
+        { status: 402 }
+      )
+    }
 
     // Get user profile
     const user = await UserService.findById(userId)
