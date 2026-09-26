@@ -153,12 +153,12 @@ export class SubscriptionPlanService {
   }
 
   static async ensurePlanFromConfig(config: LicensingPlanConfig): Promise<SubscriptionPlan> {
-    const fields = {
-      name: config.name,
+    // Sync owns structural fields (tier type, limits, features). Commercial
+    // fields (name, description, price, currency, billingCycle) are seeded
+    // from the catalog on create but become superadmin-owned afterwards —
+    // re-running sync must never clobber an imposed price.
+    const structural = {
       type: (TIER_TO_PLAN_TYPE[String(config.tier).toUpperCase()] ?? 'FREE') as any,
-      description: config.description,
-      price: config.priceMonthlyRange.min,
-      currency: 'USD',
       maxUsers: config.limits?.maxUsers ?? null,
       maxStorageGB: config.limits?.maxStorageGB ?? null,
       maxSermons: config.limits?.maxSermons ?? null,
@@ -166,17 +166,21 @@ export class SubscriptionPlanService {
       maxDepartments: config.limits?.maxDepartments ?? null,
       maxGroups: config.limits?.maxGroups ?? null,
       features: config.features,
-      billingCycle: config.billingCycle ?? 'monthly',
       firestoreData: { code: config.id },
     }
     const record = await prisma.subscriptionPlan.upsert({
       where: { id: config.id },
       create: {
         id: config.id,
-        ...fields,
+        ...structural,
+        name: config.name,
+        description: config.description,
+        price: config.priceMonthlyRange.min,
+        currency: 'USD',
+        billingCycle: config.billingCycle ?? 'monthly',
         trialDays: 30,
       },
-      update: fields,
+      update: structural,
     })
     return withLegacy<SubscriptionPlan>(record)
   }

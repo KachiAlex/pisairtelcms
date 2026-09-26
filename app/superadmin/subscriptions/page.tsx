@@ -31,7 +31,9 @@ export default async function SubscriptionsPage() {
       id: data.id,
       name: data.name || config?.name || data.id,
       description: data.description || config?.description || '',
-      price: rawPrice || config?.priceMonthlyRange.min || 0,
+      // DB price is authoritative once the row exists — a superadmin may
+      // legitimately impose 0, so don't fall back on falsy values.
+      price: data.price == null ? (config?.priceMonthlyRange.min || 0) : rawPrice,
       currency: (data.currency || 'USD') as string,
       billingCycle: (data.billingCycle || config?.billingCycle || 'monthly') as string,
       features: Array.isArray(data.features) && data.features.length > 0 ? data.features : config?.features || [],
