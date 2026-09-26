@@ -247,7 +247,13 @@ export async function churchHasPlanFeature(churchId: string, feature: string): P
 
   const status = String(subscription.status || '').toUpperCase()
   if (status === 'CANCELLED' || status === 'SUSPENDED' || status === 'EXPIRED') return false
-  if (status === 'TRIAL') return true // trial churches evaluate the full product
+
+  // Live trials evaluate the full product; a lapsed trial (status stays
+  // 'TRIAL' in DB — expiry is date-computed) falls back to its plan's tier.
+  if (status === 'TRIAL') {
+    const trialEnd = subscription.trialEndsAt ?? subscription.endDate
+    if (!trialEnd || new Date(trialEnd) > new Date()) return true
+  }
 
   const plan = await SubscriptionPlanService.findById(subscription.planId)
   if (!plan) return false
