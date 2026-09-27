@@ -6,57 +6,249 @@
 -- the enum.
 
 
-ALTER TYPE "NotificationType" ADD VALUE 'INFO';
-ALTER TYPE "NotificationType" ADD VALUE 'SUCCESS';
-ALTER TYPE "NotificationType" ADD VALUE 'WARNING';
-ALTER TYPE "NotificationType" ADD VALUE 'ERROR';
-ALTER TYPE "NotificationType" ADD VALUE 'REMINDER';
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'INFO';
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'SUCCESS';
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'WARNING';
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'ERROR';
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'REMINDER';
+
+-- CreateTable
+-- Databases provisioned via `db push` before these models existed (e.g. the
+-- VPS production DB) never received these tables; create them in their final
+-- shape so the ALTERs below and later migrations have something to work on.
+CREATE TABLE IF NOT EXISTS "AccountingIncome" (
+    "id" TEXT NOT NULL,
+    "churchId" TEXT NOT NULL,
+    "branchId" TEXT,
+    "amount" DOUBLE PRECISION NOT NULL,
+    "currency" TEXT,
+    "type" TEXT NOT NULL,
+    "category" TEXT,
+    "source" TEXT,
+    "date" TIMESTAMP(3) NOT NULL,
+    "description" TEXT,
+    "transactionId" TEXT,
+    "attachmentUrl" TEXT,
+    "attachmentPath" TEXT,
+    "voidsIncomeId" TEXT,
+    "createdBy" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "firestoreData" JSONB,
+
+    CONSTRAINT "AccountingIncome_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "AccountingIncome_churchId_fkey" FOREIGN KEY ("churchId") REFERENCES "Church"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "AccountingIncome_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "AccountingIncome_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS "AccountingExpense" (
+    "id" TEXT NOT NULL,
+    "churchId" TEXT NOT NULL,
+    "branchId" TEXT,
+    "amount" DOUBLE PRECISION NOT NULL,
+    "currency" TEXT,
+    "category" TEXT NOT NULL,
+    "payee" TEXT,
+    "date" TIMESTAMP(3) NOT NULL,
+    "description" TEXT,
+    "transactionId" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'Paid',
+    "createdBy" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "firestoreData" JSONB,
+
+    CONSTRAINT "AccountingExpense_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "AccountingExpense_churchId_fkey" FOREIGN KEY ("churchId") REFERENCES "Church"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "AccountingExpense_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "AccountingExpense_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS "UnitType" (
+    "id" TEXT NOT NULL,
+    "churchId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "description" TEXT,
+    "icon" TEXT,
+    "color" TEXT,
+    "allowMultiplePerUser" BOOLEAN NOT NULL DEFAULT false,
+    "joinPolicy" TEXT NOT NULL DEFAULT 'INVITE_ONLY',
+    "creationPolicy" TEXT NOT NULL DEFAULT 'ADMIN_ONLY',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "firestoreData" JSONB,
+
+    CONSTRAINT "UnitType_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "UnitType_churchId_fkey" FOREIGN KEY ("churchId") REFERENCES "Church"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS "Unit" (
+    "id" TEXT NOT NULL,
+    "churchId" TEXT NOT NULL,
+    "branchId" TEXT,
+    "typeId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "description" TEXT,
+    "leaderId" TEXT,
+    "permissions" JSONB,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "firestoreData" JSONB,
+
+    CONSTRAINT "Unit_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "Unit_churchId_fkey" FOREIGN KEY ("churchId") REFERENCES "Church"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "Unit_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "Unit_typeId_fkey" FOREIGN KEY ("typeId") REFERENCES "UnitType"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "Unit_leaderId_fkey" FOREIGN KEY ("leaderId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS "UnitMembership" (
+    "id" TEXT NOT NULL,
+    "unitId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "churchId" TEXT,
+    "unitTypeId" TEXT,
+    "role" TEXT NOT NULL DEFAULT 'MEMBER',
+    "joinedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "firestoreData" JSONB,
+
+    CONSTRAINT "UnitMembership_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "UnitMembership_unitId_fkey" FOREIGN KEY ("unitId") REFERENCES "Unit"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "UnitMembership_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS "UnitInvite" (
+    "id" TEXT NOT NULL,
+    "unitId" TEXT NOT NULL,
+    "churchId" TEXT,
+    "unitTypeId" TEXT,
+    "email" TEXT,
+    "invitedUserId" TEXT,
+    "invitedByUserId" TEXT,
+    "role" TEXT NOT NULL DEFAULT 'MEMBER',
+    "token" TEXT,
+    "expiresAt" TIMESTAMP(3),
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "respondedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "firestoreData" JSONB,
+
+    CONSTRAINT "UnitInvite_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "UnitInvite_unitId_fkey" FOREIGN KEY ("unitId") REFERENCES "Unit"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- AttendanceSession/AttendanceRecord are created here WITHOUT qrToken and
+-- meetingId: the later migrations 20260920190000_attendance_qr_token and
+-- 20260922090000_attendance_meeting_link add those columns.
+CREATE TABLE IF NOT EXISTS "AttendanceSession" (
+    "id" TEXT NOT NULL,
+    "churchId" TEXT NOT NULL,
+    "branchId" TEXT,
+    "title" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "mode" TEXT NOT NULL,
+    "startAt" TIMESTAMP(3) NOT NULL,
+    "endAt" TIMESTAMP(3),
+    "location" TEXT,
+    "notes" TEXT,
+    "headcount" JSONB,
+    "createdBy" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "AttendanceSession_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "AttendanceSession_churchId_fkey" FOREIGN KEY ("churchId") REFERENCES "Church"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "AttendanceSession_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "AttendanceSession_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS "AttendanceRecord" (
+    "id" TEXT NOT NULL,
+    "churchId" TEXT NOT NULL,
+    "branchId" TEXT,
+    "sessionId" TEXT NOT NULL,
+    "userId" TEXT,
+    "guestName" TEXT,
+    "channel" TEXT NOT NULL,
+    "checkedInAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AttendanceRecord_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "AttendanceRecord_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "AttendanceSession"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "AttendanceRecord_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateIndex
+CREATE INDEX IF NOT EXISTS "AccountingIncome_churchId_idx" ON "AccountingIncome"("churchId");
+CREATE INDEX IF NOT EXISTS "AccountingIncome_branchId_idx" ON "AccountingIncome"("branchId");
+CREATE INDEX IF NOT EXISTS "AccountingIncome_date_idx" ON "AccountingIncome"("date");
+CREATE INDEX IF NOT EXISTS "AccountingExpense_churchId_idx" ON "AccountingExpense"("churchId");
+CREATE INDEX IF NOT EXISTS "AccountingExpense_branchId_idx" ON "AccountingExpense"("branchId");
+CREATE INDEX IF NOT EXISTS "AccountingExpense_date_idx" ON "AccountingExpense"("date");
+CREATE INDEX IF NOT EXISTS "UnitType_churchId_idx" ON "UnitType"("churchId");
+CREATE INDEX IF NOT EXISTS "Unit_churchId_idx" ON "Unit"("churchId");
+CREATE INDEX IF NOT EXISTS "Unit_branchId_idx" ON "Unit"("branchId");
+CREATE INDEX IF NOT EXISTS "Unit_typeId_idx" ON "Unit"("typeId");
+CREATE INDEX IF NOT EXISTS "UnitMembership_unitId_idx" ON "UnitMembership"("unitId");
+CREATE INDEX IF NOT EXISTS "UnitMembership_userId_idx" ON "UnitMembership"("userId");
+CREATE INDEX IF NOT EXISTS "UnitMembership_churchId_idx" ON "UnitMembership"("churchId");
+CREATE UNIQUE INDEX IF NOT EXISTS "UnitMembership_unitId_userId_key" ON "UnitMembership"("unitId", "userId");
+CREATE INDEX IF NOT EXISTS "UnitInvite_unitId_idx" ON "UnitInvite"("unitId");
+CREATE INDEX IF NOT EXISTS "UnitInvite_token_idx" ON "UnitInvite"("token");
+CREATE UNIQUE INDEX IF NOT EXISTS "UnitInvite_token_key" ON "UnitInvite"("token");
+CREATE INDEX IF NOT EXISTS "AttendanceSession_churchId_idx" ON "AttendanceSession"("churchId");
+CREATE INDEX IF NOT EXISTS "AttendanceSession_branchId_idx" ON "AttendanceSession"("branchId");
+CREATE INDEX IF NOT EXISTS "AttendanceSession_startAt_idx" ON "AttendanceSession"("startAt");
+CREATE INDEX IF NOT EXISTS "AttendanceRecord_sessionId_idx" ON "AttendanceRecord"("sessionId");
+CREATE INDEX IF NOT EXISTS "AttendanceRecord_userId_idx" ON "AttendanceRecord"("userId");
+CREATE INDEX IF NOT EXISTS "AttendanceRecord_checkedInAt_idx" ON "AttendanceRecord"("checkedInAt");
 
 -- AlterTable
-ALTER TABLE "AccountingExpense" ADD COLUMN     "currency" TEXT,
-ADD COLUMN     "firestoreData" JSONB;
+ALTER TABLE "AccountingExpense" ADD COLUMN IF NOT EXISTS     "currency" TEXT,
+ADD COLUMN IF NOT EXISTS     "firestoreData" JSONB;
 
 -- AlterTable
-ALTER TABLE "AccountingIncome" ADD COLUMN     "attachmentPath" TEXT,
-ADD COLUMN     "attachmentUrl" TEXT,
-ADD COLUMN     "currency" TEXT,
-ADD COLUMN     "firestoreData" JSONB,
-ADD COLUMN     "voidsIncomeId" TEXT;
+ALTER TABLE "AccountingIncome" ADD COLUMN IF NOT EXISTS     "attachmentPath" TEXT,
+ADD COLUMN IF NOT EXISTS     "attachmentUrl" TEXT,
+ADD COLUMN IF NOT EXISTS     "currency" TEXT,
+ADD COLUMN IF NOT EXISTS     "firestoreData" JSONB,
+ADD COLUMN IF NOT EXISTS     "voidsIncomeId" TEXT;
 
 -- AlterTable
 ALTER TABLE "Badge" ALTER COLUMN "updatedAt" DROP DEFAULT;
 
 -- AlterTable
-ALTER TABLE "Church" ADD COLUMN     "certificateSignatureName" TEXT,
-ADD COLUMN     "certificateSignatureTitle" TEXT,
-ADD COLUMN     "certificateSignatureUrl" TEXT;
+ALTER TABLE "Church" ADD COLUMN IF NOT EXISTS     "certificateSignatureName" TEXT,
+ADD COLUMN IF NOT EXISTS     "certificateSignatureTitle" TEXT,
+ADD COLUMN IF NOT EXISTS     "certificateSignatureUrl" TEXT;
 
 -- AlterTable
-ALTER TABLE "Comment" ADD COLUMN     "parentCommentId" TEXT;
+ALTER TABLE "Comment" ADD COLUMN IF NOT EXISTS     "parentCommentId" TEXT;
 
 -- AlterTable
 ALTER TABLE "EventRegistration" ALTER COLUMN "updatedAt" DROP DEFAULT;
 
 -- AlterTable
-ALTER TABLE "Giving" ADD COLUMN     "bankTransferBankId" TEXT,
-ADD COLUMN     "branchId" TEXT,
-ADD COLUMN     "churchId" TEXT,
-ADD COLUMN     "currency" TEXT,
-ADD COLUMN     "status" TEXT NOT NULL DEFAULT 'CONFIRMED',
-ADD COLUMN     "transferReceiptUrl" TEXT,
-ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "Giving" ADD COLUMN IF NOT EXISTS     "bankTransferBankId" TEXT,
+ADD COLUMN IF NOT EXISTS     "branchId" TEXT,
+ADD COLUMN IF NOT EXISTS     "churchId" TEXT,
+ADD COLUMN IF NOT EXISTS     "currency" TEXT,
+ADD COLUMN IF NOT EXISTS     "status" TEXT NOT NULL DEFAULT 'CONFIRMED',
+ADD COLUMN IF NOT EXISTS     "transferReceiptUrl" TEXT,
+ADD COLUMN IF NOT EXISTS     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- AlterTable
-ALTER TABLE "Notification" ADD COLUMN     "deleted" BOOLEAN NOT NULL DEFAULT false,
-ADD COLUMN     "deletedAt" TIMESTAMP(3),
-ADD COLUMN     "icon" TEXT,
-ADD COLUMN     "link" TEXT,
-ADD COLUMN     "read" BOOLEAN NOT NULL DEFAULT false,
-ADD COLUMN     "readAt" TIMESTAMP(3),
+ALTER TABLE "Notification" ADD COLUMN IF NOT EXISTS     "deleted" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN IF NOT EXISTS     "deletedAt" TIMESTAMP(3),
+ADD COLUMN IF NOT EXISTS     "icon" TEXT,
+ADD COLUMN IF NOT EXISTS     "link" TEXT,
+ADD COLUMN IF NOT EXISTS     "read" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN IF NOT EXISTS     "readAt" TIMESTAMP(3),
 ALTER COLUMN "scheduledFor" SET DEFAULT CURRENT_TIMESTAMP;
 
 -- AlterTable
-ALTER TABLE "PrayerRequest" ADD COLUMN     "prayerCount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "PrayerRequest" ADD COLUMN IF NOT EXISTS     "prayerCount" INTEGER NOT NULL DEFAULT 0;
 
 -- AlterTable
 ALTER TABLE "ReadingPlan" ALTER COLUMN "updatedAt" DROP DEFAULT;
@@ -65,42 +257,42 @@ ALTER TABLE "ReadingPlan" ALTER COLUMN "updatedAt" DROP DEFAULT;
 ALTER TABLE "ReadingPlanProgress" ALTER COLUMN "updatedAt" DROP DEFAULT;
 
 -- AlterTable
-ALTER TABLE "Sermon" ADD COLUMN     "downloadsCount" INTEGER NOT NULL DEFAULT 0,
-ADD COLUMN     "searchKeywords" TEXT[],
-ADD COLUMN     "viewsCount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "Sermon" ADD COLUMN IF NOT EXISTS     "downloadsCount" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN IF NOT EXISTS     "searchKeywords" TEXT[],
+ADD COLUMN IF NOT EXISTS     "viewsCount" INTEGER NOT NULL DEFAULT 0;
 
 -- AlterTable
-ALTER TABLE "SermonView" ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "SermonView" ADD COLUMN IF NOT EXISTS     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- AlterTable
-ALTER TABLE "Unit" ADD COLUMN     "firestoreData" JSONB,
-ADD COLUMN     "permissions" JSONB;
+ALTER TABLE "Unit" ADD COLUMN IF NOT EXISTS     "firestoreData" JSONB,
+ADD COLUMN IF NOT EXISTS     "permissions" JSONB;
 
 -- AlterTable
-ALTER TABLE "UnitInvite" ADD COLUMN     "churchId" TEXT,
-ADD COLUMN     "firestoreData" JSONB,
-ADD COLUMN     "invitedByUserId" TEXT,
-ADD COLUMN     "invitedUserId" TEXT,
-ADD COLUMN     "respondedAt" TIMESTAMP(3),
-ADD COLUMN     "unitTypeId" TEXT,
+ALTER TABLE "UnitInvite" ADD COLUMN IF NOT EXISTS     "churchId" TEXT,
+ADD COLUMN IF NOT EXISTS     "firestoreData" JSONB,
+ADD COLUMN IF NOT EXISTS     "invitedByUserId" TEXT,
+ADD COLUMN IF NOT EXISTS     "invitedUserId" TEXT,
+ADD COLUMN IF NOT EXISTS     "respondedAt" TIMESTAMP(3),
+ADD COLUMN IF NOT EXISTS     "unitTypeId" TEXT,
 ALTER COLUMN "email" DROP NOT NULL,
 ALTER COLUMN "token" DROP NOT NULL,
 ALTER COLUMN "expiresAt" DROP NOT NULL;
 
 -- AlterTable
-ALTER TABLE "UnitMembership" ADD COLUMN     "churchId" TEXT,
-ADD COLUMN     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-ADD COLUMN     "firestoreData" JSONB,
-ADD COLUMN     "unitTypeId" TEXT;
+ALTER TABLE "UnitMembership" ADD COLUMN IF NOT EXISTS     "churchId" TEXT,
+ADD COLUMN IF NOT EXISTS     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN IF NOT EXISTS     "firestoreData" JSONB,
+ADD COLUMN IF NOT EXISTS     "unitTypeId" TEXT;
 
 -- AlterTable
-ALTER TABLE "UnitType" ADD COLUMN     "allowMultiplePerUser" BOOLEAN NOT NULL DEFAULT false,
-ADD COLUMN     "creationPolicy" TEXT NOT NULL DEFAULT 'ADMIN_ONLY',
-ADD COLUMN     "firestoreData" JSONB,
-ADD COLUMN     "joinPolicy" TEXT NOT NULL DEFAULT 'INVITE_ONLY';
+ALTER TABLE "UnitType" ADD COLUMN IF NOT EXISTS     "allowMultiplePerUser" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN IF NOT EXISTS     "creationPolicy" TEXT NOT NULL DEFAULT 'ADMIN_ONLY',
+ADD COLUMN IF NOT EXISTS     "firestoreData" JSONB,
+ADD COLUMN IF NOT EXISTS     "joinPolicy" TEXT NOT NULL DEFAULT 'INVITE_ONLY';
 
 -- CreateTable
-CREATE TABLE "AlertRule" (
+CREATE TABLE IF NOT EXISTS "AlertRule" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "churchId" TEXT NOT NULL,
@@ -121,7 +313,7 @@ CREATE TABLE "AlertRule" (
 );
 
 -- CreateTable
-CREATE TABLE "ChurchRole" (
+CREATE TABLE IF NOT EXISTS "ChurchRole" (
     "id" TEXT NOT NULL,
     "churchId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -138,7 +330,7 @@ CREATE TABLE "ChurchRole" (
 );
 
 -- CreateTable
-CREATE TABLE "PasswordResetToken" (
+CREATE TABLE IF NOT EXISTS "PasswordResetToken" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "token" TEXT NOT NULL,
@@ -151,7 +343,7 @@ CREATE TABLE "PasswordResetToken" (
 );
 
 -- CreateTable
-CREATE TABLE "GivingConfig" (
+CREATE TABLE IF NOT EXISTS "GivingConfig" (
     "id" TEXT NOT NULL,
     "churchId" TEXT NOT NULL,
     "paymentMethods" JSONB,
@@ -165,7 +357,7 @@ CREATE TABLE "GivingConfig" (
 );
 
 -- CreateTable
-CREATE TABLE "SubscriptionPayment" (
+CREATE TABLE IF NOT EXISTS "SubscriptionPayment" (
     "id" TEXT NOT NULL,
     "reference" TEXT NOT NULL,
     "churchId" TEXT NOT NULL,
@@ -189,7 +381,7 @@ CREATE TABLE "SubscriptionPayment" (
 );
 
 -- CreateTable
-CREATE TABLE "SubscriptionPromo" (
+CREATE TABLE IF NOT EXISTS "SubscriptionPromo" (
     "code" TEXT NOT NULL,
     "type" TEXT NOT NULL DEFAULT 'percentage',
     "value" DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -212,7 +404,7 @@ CREATE TABLE "SubscriptionPromo" (
 );
 
 -- CreateTable
-CREATE TABLE "SubscriptionPlanOverride" (
+CREATE TABLE IF NOT EXISTS "SubscriptionPlanOverride" (
     "id" TEXT NOT NULL,
     "planId" TEXT NOT NULL,
     "churchId" TEXT NOT NULL,
@@ -231,7 +423,7 @@ CREATE TABLE "SubscriptionPlanOverride" (
 );
 
 -- CreateTable
-CREATE TABLE "LandingPlanPayment" (
+CREATE TABLE IF NOT EXISTS "LandingPlanPayment" (
     "id" TEXT NOT NULL,
     "reference" TEXT NOT NULL,
     "planId" TEXT NOT NULL,
@@ -258,7 +450,7 @@ CREATE TABLE "LandingPlanPayment" (
 );
 
 -- CreateTable
-CREATE TABLE "PendingDonation" (
+CREATE TABLE IF NOT EXISTS "PendingDonation" (
     "id" TEXT NOT NULL,
     "txRef" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -281,7 +473,7 @@ CREATE TABLE "PendingDonation" (
 );
 
 -- CreateTable
-CREATE TABLE "WebhookEvent" (
+CREATE TABLE IF NOT EXISTS "WebhookEvent" (
     "id" TEXT NOT NULL,
     "transactionKey" TEXT NOT NULL,
     "provider" TEXT NOT NULL,
@@ -296,7 +488,7 @@ CREATE TABLE "WebhookEvent" (
 );
 
 -- CreateTable
-CREATE TABLE "UnitInviteLink" (
+CREATE TABLE IF NOT EXISTS "UnitInviteLink" (
     "id" TEXT NOT NULL,
     "unitId" TEXT NOT NULL,
     "churchId" TEXT NOT NULL,
@@ -314,7 +506,7 @@ CREATE TABLE "UnitInviteLink" (
 );
 
 -- CreateTable
-CREATE TABLE "UnitSettings" (
+CREATE TABLE IF NOT EXISTS "UnitSettings" (
     "id" TEXT NOT NULL,
     "unitId" TEXT NOT NULL,
     "churchId" TEXT NOT NULL,
@@ -331,7 +523,7 @@ CREATE TABLE "UnitSettings" (
 );
 
 -- CreateTable
-CREATE TABLE "UnitMessage" (
+CREATE TABLE IF NOT EXISTS "UnitMessage" (
     "id" TEXT NOT NULL,
     "unitId" TEXT NOT NULL,
     "churchId" TEXT NOT NULL,
@@ -349,7 +541,7 @@ CREATE TABLE "UnitMessage" (
 );
 
 -- CreateTable
-CREATE TABLE "UnitPoll" (
+CREATE TABLE IF NOT EXISTS "UnitPoll" (
     "id" TEXT NOT NULL,
     "unitId" TEXT NOT NULL,
     "churchId" TEXT NOT NULL,
@@ -369,7 +561,7 @@ CREATE TABLE "UnitPoll" (
 );
 
 -- CreateTable
-CREATE TABLE "UnitPollVote" (
+CREATE TABLE IF NOT EXISTS "UnitPollVote" (
     "id" TEXT NOT NULL,
     "pollId" TEXT NOT NULL,
     "unitId" TEXT NOT NULL,
@@ -382,7 +574,7 @@ CREATE TABLE "UnitPollVote" (
 );
 
 -- CreateTable
-CREATE TABLE "CommentLike" (
+CREATE TABLE IF NOT EXISTS "CommentLike" (
     "id" TEXT NOT NULL,
     "commentId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -393,7 +585,7 @@ CREATE TABLE "CommentLike" (
 );
 
 -- CreateTable
-CREATE TABLE "PostShare" (
+CREATE TABLE IF NOT EXISTS "PostShare" (
     "id" TEXT NOT NULL,
     "postId" TEXT NOT NULL,
     "churchId" TEXT NOT NULL,
@@ -407,7 +599,7 @@ CREATE TABLE "PostShare" (
 );
 
 -- CreateTable
-CREATE TABLE "ChurchGoogleOauthState" (
+CREATE TABLE IF NOT EXISTS "ChurchGoogleOauthState" (
     "id" TEXT NOT NULL,
     "state" TEXT NOT NULL,
     "churchId" TEXT NOT NULL,
@@ -420,7 +612,7 @@ CREATE TABLE "ChurchGoogleOauthState" (
 );
 
 -- CreateTable
-CREATE TABLE "DigitalCourse" (
+CREATE TABLE IF NOT EXISTS "DigitalCourse" (
     "id" TEXT NOT NULL,
     "churchId" TEXT NOT NULL,
     "title" TEXT NOT NULL,
@@ -443,7 +635,7 @@ CREATE TABLE "DigitalCourse" (
 );
 
 -- CreateTable
-CREATE TABLE "DigitalCourseSection" (
+CREATE TABLE IF NOT EXISTS "DigitalCourseSection" (
     "id" TEXT NOT NULL,
     "courseId" TEXT NOT NULL,
     "title" TEXT NOT NULL,
@@ -458,7 +650,7 @@ CREATE TABLE "DigitalCourseSection" (
 );
 
 -- CreateTable
-CREATE TABLE "DigitalCourseModule" (
+CREATE TABLE IF NOT EXISTS "DigitalCourseModule" (
     "id" TEXT NOT NULL,
     "courseId" TEXT NOT NULL,
     "sectionId" TEXT NOT NULL,
@@ -483,7 +675,7 @@ CREATE TABLE "DigitalCourseModule" (
 );
 
 -- CreateTable
-CREATE TABLE "DigitalCourseLesson" (
+CREATE TABLE IF NOT EXISTS "DigitalCourseLesson" (
     "id" TEXT NOT NULL,
     "courseId" TEXT NOT NULL,
     "moduleId" TEXT NOT NULL,
@@ -502,7 +694,7 @@ CREATE TABLE "DigitalCourseLesson" (
 );
 
 -- CreateTable
-CREATE TABLE "DigitalCourseEnrollment" (
+CREATE TABLE IF NOT EXISTS "DigitalCourseEnrollment" (
     "id" TEXT NOT NULL,
     "courseId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -522,7 +714,7 @@ CREATE TABLE "DigitalCourseEnrollment" (
 );
 
 -- CreateTable
-CREATE TABLE "DigitalCourseAccessRequest" (
+CREATE TABLE IF NOT EXISTS "DigitalCourseAccessRequest" (
     "id" TEXT NOT NULL,
     "courseId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -538,7 +730,7 @@ CREATE TABLE "DigitalCourseAccessRequest" (
 );
 
 -- CreateTable
-CREATE TABLE "DigitalCourseExam" (
+CREATE TABLE IF NOT EXISTS "DigitalCourseExam" (
     "id" TEXT NOT NULL,
     "courseId" TEXT NOT NULL,
     "sectionId" TEXT NOT NULL,
@@ -560,7 +752,7 @@ CREATE TABLE "DigitalCourseExam" (
 );
 
 -- CreateTable
-CREATE TABLE "DigitalExamQuestion" (
+CREATE TABLE IF NOT EXISTS "DigitalExamQuestion" (
     "id" TEXT NOT NULL,
     "examId" TEXT NOT NULL,
     "courseId" TEXT NOT NULL,
@@ -579,7 +771,7 @@ CREATE TABLE "DigitalExamQuestion" (
 );
 
 -- CreateTable
-CREATE TABLE "DigitalExamAttempt" (
+CREATE TABLE IF NOT EXISTS "DigitalExamAttempt" (
     "id" TEXT NOT NULL,
     "examId" TEXT NOT NULL,
     "courseId" TEXT NOT NULL,
@@ -598,208 +790,208 @@ CREATE TABLE "DigitalExamAttempt" (
 );
 
 -- CreateIndex
-CREATE INDEX "AlertRule_userId_idx" ON "AlertRule"("userId");
+CREATE INDEX IF NOT EXISTS "AlertRule_userId_idx" ON "AlertRule"("userId");
 
 -- CreateIndex
-CREATE INDEX "AlertRule_churchId_idx" ON "AlertRule"("churchId");
+CREATE INDEX IF NOT EXISTS "AlertRule_churchId_idx" ON "AlertRule"("churchId");
 
 -- CreateIndex
-CREATE INDEX "AlertRule_metric_idx" ON "AlertRule"("metric");
+CREATE INDEX IF NOT EXISTS "AlertRule_metric_idx" ON "AlertRule"("metric");
 
 -- CreateIndex
-CREATE INDEX "ChurchRole_churchId_idx" ON "ChurchRole"("churchId");
+CREATE INDEX IF NOT EXISTS "ChurchRole_churchId_idx" ON "ChurchRole"("churchId");
 
 -- CreateIndex
-CREATE INDEX "ChurchRole_key_idx" ON "ChurchRole"("key");
+CREATE INDEX IF NOT EXISTS "ChurchRole_key_idx" ON "ChurchRole"("key");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "PasswordResetToken_token_key" ON "PasswordResetToken"("token");
+CREATE UNIQUE INDEX IF NOT EXISTS "PasswordResetToken_token_key" ON "PasswordResetToken"("token");
 
 -- CreateIndex
-CREATE INDEX "PasswordResetToken_userId_idx" ON "PasswordResetToken"("userId");
+CREATE INDEX IF NOT EXISTS "PasswordResetToken_userId_idx" ON "PasswordResetToken"("userId");
 
 -- CreateIndex
-CREATE INDEX "PasswordResetToken_token_idx" ON "PasswordResetToken"("token");
+CREATE INDEX IF NOT EXISTS "PasswordResetToken_token_idx" ON "PasswordResetToken"("token");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "GivingConfig_churchId_key" ON "GivingConfig"("churchId");
+CREATE UNIQUE INDEX IF NOT EXISTS "GivingConfig_churchId_key" ON "GivingConfig"("churchId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "SubscriptionPayment_reference_key" ON "SubscriptionPayment"("reference");
+CREATE UNIQUE INDEX IF NOT EXISTS "SubscriptionPayment_reference_key" ON "SubscriptionPayment"("reference");
 
 -- CreateIndex
-CREATE INDEX "SubscriptionPayment_churchId_idx" ON "SubscriptionPayment"("churchId");
+CREATE INDEX IF NOT EXISTS "SubscriptionPayment_churchId_idx" ON "SubscriptionPayment"("churchId");
 
 -- CreateIndex
-CREATE INDEX "SubscriptionPayment_planId_idx" ON "SubscriptionPayment"("planId");
+CREATE INDEX IF NOT EXISTS "SubscriptionPayment_planId_idx" ON "SubscriptionPayment"("planId");
 
 -- CreateIndex
-CREATE INDEX "SubscriptionPayment_status_idx" ON "SubscriptionPayment"("status");
+CREATE INDEX IF NOT EXISTS "SubscriptionPayment_status_idx" ON "SubscriptionPayment"("status");
 
 -- CreateIndex
-CREATE INDEX "SubscriptionPlanOverride_churchId_idx" ON "SubscriptionPlanOverride"("churchId");
+CREATE INDEX IF NOT EXISTS "SubscriptionPlanOverride_churchId_idx" ON "SubscriptionPlanOverride"("churchId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "SubscriptionPlanOverride_planId_churchId_key" ON "SubscriptionPlanOverride"("planId", "churchId");
+CREATE UNIQUE INDEX IF NOT EXISTS "SubscriptionPlanOverride_planId_churchId_key" ON "SubscriptionPlanOverride"("planId", "churchId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "LandingPlanPayment_reference_key" ON "LandingPlanPayment"("reference");
+CREATE UNIQUE INDEX IF NOT EXISTS "LandingPlanPayment_reference_key" ON "LandingPlanPayment"("reference");
 
 -- CreateIndex
-CREATE INDEX "LandingPlanPayment_status_idx" ON "LandingPlanPayment"("status");
+CREATE INDEX IF NOT EXISTS "LandingPlanPayment_status_idx" ON "LandingPlanPayment"("status");
 
 -- CreateIndex
-CREATE INDEX "LandingPlanPayment_planId_idx" ON "LandingPlanPayment"("planId");
+CREATE INDEX IF NOT EXISTS "LandingPlanPayment_planId_idx" ON "LandingPlanPayment"("planId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "PendingDonation_txRef_key" ON "PendingDonation"("txRef");
+CREATE UNIQUE INDEX IF NOT EXISTS "PendingDonation_txRef_key" ON "PendingDonation"("txRef");
 
 -- CreateIndex
-CREATE INDEX "PendingDonation_churchId_idx" ON "PendingDonation"("churchId");
+CREATE INDEX IF NOT EXISTS "PendingDonation_churchId_idx" ON "PendingDonation"("churchId");
 
 -- CreateIndex
-CREATE INDEX "PendingDonation_status_idx" ON "PendingDonation"("status");
+CREATE INDEX IF NOT EXISTS "PendingDonation_status_idx" ON "PendingDonation"("status");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "WebhookEvent_transactionKey_key" ON "WebhookEvent"("transactionKey");
+CREATE UNIQUE INDEX IF NOT EXISTS "WebhookEvent_transactionKey_key" ON "WebhookEvent"("transactionKey");
 
 -- CreateIndex
-CREATE INDEX "WebhookEvent_provider_idx" ON "WebhookEvent"("provider");
+CREATE INDEX IF NOT EXISTS "WebhookEvent_provider_idx" ON "WebhookEvent"("provider");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "UnitInviteLink_token_key" ON "UnitInviteLink"("token");
+CREATE UNIQUE INDEX IF NOT EXISTS "UnitInviteLink_token_key" ON "UnitInviteLink"("token");
 
 -- CreateIndex
-CREATE INDEX "UnitInviteLink_unitId_idx" ON "UnitInviteLink"("unitId");
+CREATE INDEX IF NOT EXISTS "UnitInviteLink_unitId_idx" ON "UnitInviteLink"("unitId");
 
 -- CreateIndex
-CREATE INDEX "UnitInviteLink_token_idx" ON "UnitInviteLink"("token");
+CREATE INDEX IF NOT EXISTS "UnitInviteLink_token_idx" ON "UnitInviteLink"("token");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "UnitSettings_unitId_key" ON "UnitSettings"("unitId");
+CREATE UNIQUE INDEX IF NOT EXISTS "UnitSettings_unitId_key" ON "UnitSettings"("unitId");
 
 -- CreateIndex
-CREATE INDEX "UnitSettings_churchId_idx" ON "UnitSettings"("churchId");
+CREATE INDEX IF NOT EXISTS "UnitSettings_churchId_idx" ON "UnitSettings"("churchId");
 
 -- CreateIndex
-CREATE INDEX "UnitMessage_unitId_idx" ON "UnitMessage"("unitId");
+CREATE INDEX IF NOT EXISTS "UnitMessage_unitId_idx" ON "UnitMessage"("unitId");
 
 -- CreateIndex
-CREATE INDEX "UnitMessage_churchId_idx" ON "UnitMessage"("churchId");
+CREATE INDEX IF NOT EXISTS "UnitMessage_churchId_idx" ON "UnitMessage"("churchId");
 
 -- CreateIndex
-CREATE INDEX "UnitMessage_userId_idx" ON "UnitMessage"("userId");
+CREATE INDEX IF NOT EXISTS "UnitMessage_userId_idx" ON "UnitMessage"("userId");
 
 -- CreateIndex
-CREATE INDEX "UnitPoll_unitId_idx" ON "UnitPoll"("unitId");
+CREATE INDEX IF NOT EXISTS "UnitPoll_unitId_idx" ON "UnitPoll"("unitId");
 
 -- CreateIndex
-CREATE INDEX "UnitPoll_churchId_idx" ON "UnitPoll"("churchId");
+CREATE INDEX IF NOT EXISTS "UnitPoll_churchId_idx" ON "UnitPoll"("churchId");
 
 -- CreateIndex
-CREATE INDEX "UnitPollVote_unitId_idx" ON "UnitPollVote"("unitId");
+CREATE INDEX IF NOT EXISTS "UnitPollVote_unitId_idx" ON "UnitPollVote"("unitId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "UnitPollVote_pollId_userId_key" ON "UnitPollVote"("pollId", "userId");
+CREATE UNIQUE INDEX IF NOT EXISTS "UnitPollVote_pollId_userId_key" ON "UnitPollVote"("pollId", "userId");
 
 -- CreateIndex
-CREATE INDEX "CommentLike_userId_idx" ON "CommentLike"("userId");
+CREATE INDEX IF NOT EXISTS "CommentLike_userId_idx" ON "CommentLike"("userId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "CommentLike_commentId_userId_key" ON "CommentLike"("commentId", "userId");
+CREATE UNIQUE INDEX IF NOT EXISTS "CommentLike_commentId_userId_key" ON "CommentLike"("commentId", "userId");
 
 -- CreateIndex
-CREATE INDEX "PostShare_postId_idx" ON "PostShare"("postId");
+CREATE INDEX IF NOT EXISTS "PostShare_postId_idx" ON "PostShare"("postId");
 
 -- CreateIndex
-CREATE INDEX "PostShare_churchId_idx" ON "PostShare"("churchId");
+CREATE INDEX IF NOT EXISTS "PostShare_churchId_idx" ON "PostShare"("churchId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ChurchGoogleOauthState_state_key" ON "ChurchGoogleOauthState"("state");
+CREATE UNIQUE INDEX IF NOT EXISTS "ChurchGoogleOauthState_state_key" ON "ChurchGoogleOauthState"("state");
 
 -- CreateIndex
-CREATE INDEX "ChurchGoogleOauthState_state_idx" ON "ChurchGoogleOauthState"("state");
+CREATE INDEX IF NOT EXISTS "ChurchGoogleOauthState_state_idx" ON "ChurchGoogleOauthState"("state");
 
 -- CreateIndex
-CREATE INDEX "DigitalCourse_churchId_idx" ON "DigitalCourse"("churchId");
+CREATE INDEX IF NOT EXISTS "DigitalCourse_churchId_idx" ON "DigitalCourse"("churchId");
 
 -- CreateIndex
-CREATE INDEX "DigitalCourse_status_idx" ON "DigitalCourse"("status");
+CREATE INDEX IF NOT EXISTS "DigitalCourse_status_idx" ON "DigitalCourse"("status");
 
 -- CreateIndex
-CREATE INDEX "DigitalCourseSection_courseId_idx" ON "DigitalCourseSection"("courseId");
+CREATE INDEX IF NOT EXISTS "DigitalCourseSection_courseId_idx" ON "DigitalCourseSection"("courseId");
 
 -- CreateIndex
-CREATE INDEX "DigitalCourseModule_courseId_idx" ON "DigitalCourseModule"("courseId");
+CREATE INDEX IF NOT EXISTS "DigitalCourseModule_courseId_idx" ON "DigitalCourseModule"("courseId");
 
 -- CreateIndex
-CREATE INDEX "DigitalCourseModule_sectionId_idx" ON "DigitalCourseModule"("sectionId");
+CREATE INDEX IF NOT EXISTS "DigitalCourseModule_sectionId_idx" ON "DigitalCourseModule"("sectionId");
 
 -- CreateIndex
-CREATE INDEX "DigitalCourseLesson_courseId_idx" ON "DigitalCourseLesson"("courseId");
+CREATE INDEX IF NOT EXISTS "DigitalCourseLesson_courseId_idx" ON "DigitalCourseLesson"("courseId");
 
 -- CreateIndex
-CREATE INDEX "DigitalCourseLesson_moduleId_idx" ON "DigitalCourseLesson"("moduleId");
+CREATE INDEX IF NOT EXISTS "DigitalCourseLesson_moduleId_idx" ON "DigitalCourseLesson"("moduleId");
 
 -- CreateIndex
-CREATE INDEX "DigitalCourseEnrollment_userId_idx" ON "DigitalCourseEnrollment"("userId");
+CREATE INDEX IF NOT EXISTS "DigitalCourseEnrollment_userId_idx" ON "DigitalCourseEnrollment"("userId");
 
 -- CreateIndex
-CREATE INDEX "DigitalCourseEnrollment_churchId_idx" ON "DigitalCourseEnrollment"("churchId");
+CREATE INDEX IF NOT EXISTS "DigitalCourseEnrollment_churchId_idx" ON "DigitalCourseEnrollment"("churchId");
 
 -- CreateIndex
-CREATE INDEX "DigitalCourseEnrollment_status_idx" ON "DigitalCourseEnrollment"("status");
+CREATE INDEX IF NOT EXISTS "DigitalCourseEnrollment_status_idx" ON "DigitalCourseEnrollment"("status");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "DigitalCourseEnrollment_courseId_userId_key" ON "DigitalCourseEnrollment"("courseId", "userId");
+CREATE UNIQUE INDEX IF NOT EXISTS "DigitalCourseEnrollment_courseId_userId_key" ON "DigitalCourseEnrollment"("courseId", "userId");
 
 -- CreateIndex
-CREATE INDEX "DigitalCourseAccessRequest_courseId_idx" ON "DigitalCourseAccessRequest"("courseId");
+CREATE INDEX IF NOT EXISTS "DigitalCourseAccessRequest_courseId_idx" ON "DigitalCourseAccessRequest"("courseId");
 
 -- CreateIndex
-CREATE INDEX "DigitalCourseAccessRequest_userId_idx" ON "DigitalCourseAccessRequest"("userId");
+CREATE INDEX IF NOT EXISTS "DigitalCourseAccessRequest_userId_idx" ON "DigitalCourseAccessRequest"("userId");
 
 -- CreateIndex
-CREATE INDEX "DigitalCourseAccessRequest_status_idx" ON "DigitalCourseAccessRequest"("status");
+CREATE INDEX IF NOT EXISTS "DigitalCourseAccessRequest_status_idx" ON "DigitalCourseAccessRequest"("status");
 
 -- CreateIndex
-CREATE INDEX "DigitalCourseExam_courseId_idx" ON "DigitalCourseExam"("courseId");
+CREATE INDEX IF NOT EXISTS "DigitalCourseExam_courseId_idx" ON "DigitalCourseExam"("courseId");
 
 -- CreateIndex
-CREATE INDEX "DigitalCourseExam_sectionId_idx" ON "DigitalCourseExam"("sectionId");
+CREATE INDEX IF NOT EXISTS "DigitalCourseExam_sectionId_idx" ON "DigitalCourseExam"("sectionId");
 
 -- CreateIndex
-CREATE INDEX "DigitalExamQuestion_examId_idx" ON "DigitalExamQuestion"("examId");
+CREATE INDEX IF NOT EXISTS "DigitalExamQuestion_examId_idx" ON "DigitalExamQuestion"("examId");
 
 -- CreateIndex
-CREATE INDEX "DigitalExamQuestion_courseId_idx" ON "DigitalExamQuestion"("courseId");
+CREATE INDEX IF NOT EXISTS "DigitalExamQuestion_courseId_idx" ON "DigitalExamQuestion"("courseId");
 
 -- CreateIndex
-CREATE INDEX "DigitalExamAttempt_examId_idx" ON "DigitalExamAttempt"("examId");
+CREATE INDEX IF NOT EXISTS "DigitalExamAttempt_examId_idx" ON "DigitalExamAttempt"("examId");
 
 -- CreateIndex
-CREATE INDEX "DigitalExamAttempt_userId_idx" ON "DigitalExamAttempt"("userId");
+CREATE INDEX IF NOT EXISTS "DigitalExamAttempt_userId_idx" ON "DigitalExamAttempt"("userId");
 
 -- CreateIndex
-CREATE INDEX "DigitalExamAttempt_courseId_idx" ON "DigitalExamAttempt"("courseId");
+CREATE INDEX IF NOT EXISTS "DigitalExamAttempt_courseId_idx" ON "DigitalExamAttempt"("courseId");
 
 -- CreateIndex
-CREATE INDEX "Giving_churchId_idx" ON "Giving"("churchId");
+CREATE INDEX IF NOT EXISTS "Giving_churchId_idx" ON "Giving"("churchId");
 
 -- CreateIndex
-CREATE INDEX "Giving_branchId_idx" ON "Giving"("branchId");
+CREATE INDEX IF NOT EXISTS "Giving_branchId_idx" ON "Giving"("branchId");
 
 -- CreateIndex
-CREATE INDEX "Giving_transactionId_idx" ON "Giving"("transactionId");
+CREATE INDEX IF NOT EXISTS "Giving_transactionId_idx" ON "Giving"("transactionId");
 
 -- CreateIndex
-CREATE INDEX "UnitInvite_churchId_idx" ON "UnitInvite"("churchId");
+CREATE INDEX IF NOT EXISTS "UnitInvite_churchId_idx" ON "UnitInvite"("churchId");
 
 -- CreateIndex
-CREATE INDEX "UnitInvite_invitedUserId_idx" ON "UnitInvite"("invitedUserId");
+CREATE INDEX IF NOT EXISTS "UnitInvite_invitedUserId_idx" ON "UnitInvite"("invitedUserId");
 
 -- CreateIndex
-CREATE INDEX "UnitMembership_churchId_idx" ON "UnitMembership"("churchId");
+CREATE INDEX IF NOT EXISTS "UnitMembership_churchId_idx" ON "UnitMembership"("churchId");
 
 -- AddForeignKey
 ALTER TABLE "ChurchRole" ADD CONSTRAINT "ChurchRole_churchId_fkey" FOREIGN KEY ("churchId") REFERENCES "Church"("id") ON DELETE CASCADE ON UPDATE CASCADE;
