@@ -6,6 +6,7 @@ import { authOptions } from '@/lib/auth-options'
 import { setCurrentChurchId, getCurrentChurchId } from '@/lib/church-context'
 import { UserService } from '@/lib/services/user-service'
 import { ChurchService } from '@/lib/services/church-service'
+import { ChurchMembershipService } from '@/lib/services/church-membership-service'
 
 export async function POST(request: Request) {
   try {
@@ -39,10 +40,11 @@ export async function POST(request: Request) {
       )
     }
 
-    // For now, allow switching if user's church matches or user is super admin
-    // In production, you might want more sophisticated access control
+    // Access = active-church pointer, a membership row, or super admin.
     const userRole = (session.user as any).role
-    if (user?.churchId !== churchId && userRole !== 'SUPER_ADMIN') {
+    const membership = await ChurchMembershipService.findByUserAndChurch(userId, churchId)
+    const allowed = userRole === 'SUPER_ADMIN' || user?.churchId === churchId || !!membership
+    if (!allowed) {
       return NextResponse.json(
         { error: 'Access denied' },
         { status: 403 }
@@ -50,6 +52,25 @@ export async function POST(request: Request) {
     }
 
     await setCurrentChurchId(churchId)
+
+    // Activate the target church's per-church role/branch on the user so the
+    // session reflects tenant-local permissions. Super admins have no tenant
+    // membership — leave their pointers untouched.
+    if (membership) {
+      await UserService.update(userId, {
+        churchId,
+        role: membership.role as any,
+        branchId: membership.branchId,
+      })
+    } else if (userRole !== 'SUPER_ADMIN' && user?.churchId === churchId) {
+      // Legacy membership gap — backfill so the switcher keeps working.
+      await ChurchMembershipService.attach({
+        userId,
+        churchId,
+        role: (user?.role as any) ?? 'MEMBER',
+        branchId: user?.branchId ?? null,
+      })
+    }
 
     return NextResponse.json({ success: true, churchId })
   } catch (error) {

@@ -6,6 +6,7 @@ import { ChurchService } from '@/lib/services/church-service'
 import { BranchService } from '@/lib/services/branch-service'
 import { BranchAdminService } from '@/lib/services/branch-service'
 import { UserService } from '@/lib/services/user-service'
+import { ChurchMembershipService } from '@/lib/services/church-membership-service'
 import { getHierarchyLevels, getHierarchyLevelLabels } from '@/lib/services/branch-hierarchy'
 
 export async function GET(
@@ -128,7 +129,22 @@ export async function POST(
 
     const existing = await UserService.findByEmail(email)
     if (existing) {
-      return NextResponse.json({ error: 'User with this email already exists' }, { status: 400 })
+      const alreadyMember =
+        existing.churchId === invite.churchId ||
+        (await ChurchMembershipService.isMember(existing.id, invite.churchId))
+      if (alreadyMember) {
+        return NextResponse.json(
+          { code: 'already_member', error: 'You are already a member of this church — log in to continue.' },
+          { status: 409 }
+        )
+      }
+      return NextResponse.json(
+        {
+          code: 'account_exists',
+          error: 'An account with this email already exists. Log in to accept this invite.',
+        },
+        { status: 409 }
+      )
     }
 
     if (branchId) {

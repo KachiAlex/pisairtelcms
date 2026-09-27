@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
 import { ChurchService } from './services/church-service'
 import { UserService } from './services/user-service'
+import { ChurchMembershipService } from './services/church-membership-service'
 import { prisma } from './prisma'
 import { logger } from '@/lib/logger'
 
@@ -20,7 +21,10 @@ export async function getCurrentChurchId(userId?: string): Promise<string | null
 
   if (churchIdFromCookie) {
     const cookieAllowed =
-      isSuperAdmin || (user !== null && user.churchId === churchIdFromCookie)
+      isSuperAdmin ||
+      (user !== null &&
+        (user.churchId === churchIdFromCookie ||
+          (await ChurchMembershipService.isMember(user.id, churchIdFromCookie))))
 
     if (cookieAllowed) {
       // Verify church exists

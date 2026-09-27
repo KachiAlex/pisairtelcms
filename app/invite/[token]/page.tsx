@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useSession } from 'next-auth/react'
 import { useTenantBrand } from '@/lib/branding/useTenantBrand'
 
 type Branch = { id: string; name: string; level?: string; levelLabel?: string | null; parentBranchId?: string | null }
@@ -26,7 +27,11 @@ export default function InviteSignupPage({ params }: { params: { token: string }
   const [error, setError] = useState('')
   const [ctx, setCtx] = useState<InviteContext | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [joining, setJoining] = useState(false)
+  const [joinedChurch, setJoinedChurch] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ kind: 'info' | 'error'; text: string; showLogin?: boolean } | null>(null)
   const [showPassword, setShowPassword] = useState(false)
+  const { data: session, status: sessionStatus } = useSession()
   const [branchValidationError, setBranchValidationError] = useState('')
   const { brand } = useTenantBrand({ churchId: ctx?.church?.id })
 
@@ -162,7 +167,16 @@ export default function InviteSignupPage({ params }: { params: { token: string }
       })
 
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || 'Failed to create account')
+      if (!res.ok) {
+        if (res.status === 409 && data?.code === 'already_member') {
+          setNotice({ kind: 'info', text: data.error, showLogin: true })
+        } else if (res.status === 409 && data?.code === 'account_exists') {
+          setNotice({ kind: 'info', text: data.error, showLogin: true })
+        } else {
+          throw new Error(data?.error || 'Failed to create account')
+        }
+        return
+      }
 
       router.push('/auth/login')
     } catch (e: any) {
@@ -171,6 +185,28 @@ export default function InviteSignupPage({ params }: { params: { token: string }
       setSubmitting(false)
     }
   }
+
+  const acceptInvite = async () => {
+    setError('')
+    setNotice(null)
+    setJoining(true)
+    try {
+      const res = await fetch(`/api/invite/${encodeURIComponent(token)}/accept`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 401) {
+        router.push(`/auth/login?callbackUrl=${encodeURIComponent(`/invite/${token}`)}`)
+        return
+      }
+      if (!res.ok) throw new Error(data?.error || 'Failed to join church')
+      setJoinedChurch(data?.church?.name || ctx?.church?.name || 'the church')
+    } catch (e: any) {
+      setError(e?.message || 'Failed to join church')
+    } finally {
+      setJoining(false)
+    }
+  }
+
+  const loginUrl = `/auth/login?callbackUrl=${encodeURIComponent(`/invite/${token}`)}`
 
   if (loading) {
     return (
@@ -197,7 +233,56 @@ export default function InviteSignupPage({ params }: { params: { token: string }
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-800 rounded-xl">{error}</div>
         )}
+        {notice && (
+          <div className={`mb-6 p-4 rounded-xl border ${notice.kind === 'info' ? 'bg-blue-50 border-blue-200 text-blue-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+            <p className="text-sm">{notice.text}</p>
+            {notice.showLogin && (
+              <Link href={loginUrl} className="mt-2 inline-block text-sm font-semibold text-blue-700 underline">
+                Log in to continue
+              </Link>
+            )}
+          </div>
+        )}
 
+        {joinedChurch ? (
+          <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 text-center">
+            <div className="text-4xl mb-3">🎉</div>
+            <h2 className="text-xl font-bold text-gray-900">You're in!</h2>
+            <p className="text-gray-600 mt-1 text-sm">You are now a member of {joinedChurch}.</p>
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="mt-6 w-full py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700"
+            >
+              Go to your dashboard
+            </button>
+          </div>
+        ) : sessionStatus === 'authenticated' && session?.user ? (
+          <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 text-center">
+            <h2 className="text-xl font-bold text-gray-900">Join {ctx?.church?.name}</h2>
+            <p className="text-gray-600 mt-1 text-sm">
+              Signed in as <span className="font-medium">{session.user.email}</span>.
+              {ctx?.invite?.branchId && lockedBranch
+                ? ` You'll be added to ${lockedBranch.name}.`
+                : ''}
+            </p>
+            <button
+              onClick={acceptInvite}
+              disabled={joining}
+              className="mt-6 w-full py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50"
+            >
+              {joining ? 'Joining…' : 'Join this church'}
+            </button>
+            <p className="mt-4 text-xs text-gray-500">
+              Not you?{' '}
+              <Link href={loginUrl} className="text-blue-600 underline">
+                Switch account
+              </Link>{' '}
+              or fill the form below with a different email.
+            </p>
+          </div>
+        ) : null}
+
+        {sessionStatus !== 'authenticated' && !joinedChurch && (
         <form onSubmit={submit} className="space-y-6 bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -367,9 +452,10 @@ export default function InviteSignupPage({ params }: { params: { token: string }
             {submitting ? 'Creating account...' : 'Create account'}
           </button>
         </form>
+        )}
 
         <div className="mt-6 text-center">
-          <Link href="/auth/login" className="text-sm text-blue-600 hover:underline">Already have an account? Sign in</Link>
+          <Link href={loginUrl} className="text-sm text-blue-600 hover:underline">Already have an account? Sign in</Link>
         </div>
       </div>
     </div>

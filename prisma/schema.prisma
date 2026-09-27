@@ -149,6 +149,7 @@ model User {
   notificationPrefs Json?
 
   // Relationships
+  memberships               ChurchMembership[]
   departments               DepartmentMembership[]
   groups                    GroupMembership[]
   badges                    UserBadge[]
@@ -266,6 +267,7 @@ model Church {
 
   // Subscription & Licensing
   subscription Subscription?
+  memberships  ChurchMembership[]
 
   // Owner/Admin user
   ownerId String?
@@ -393,7 +395,8 @@ model Branch {
   branchAdmins BranchAdmin[]
 
   // Branch members
-  users User[]
+  users       User[]
+  memberships ChurchMembership[]
 
   // Branch-specific data
   departments Department[]
@@ -422,6 +425,28 @@ model Branch {
   @@index([isActive])
   @@index([parentBranchId])
   @@index([level])
+}
+
+// Per-tenant membership: a user may belong to many churches. User.churchId
+// remains the ACTIVE church pointer; this table is the full membership set
+// and carries the per-church role/branch.
+model ChurchMembership {
+  id       String  @id @default(cuid())
+  userId   String
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  churchId String
+  church   Church  @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  branchId String?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  role UserRole @default(MEMBER)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, churchId])
+  @@index([churchId])
+  @@index([branchId])
 }
 
 // Branch Admin Assignment

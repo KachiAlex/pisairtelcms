@@ -10,7 +10,7 @@ export interface User {
   password: string
   role: string
   churchId: string | null
-  branchId?: string
+  branchId?: string | null
   churchRoleId?: string
   churchRoleName?: string
   designationId?: string
@@ -146,6 +146,17 @@ export class UserService {
         firestoreData: this.buildLegacyData(data),
       },
     })
+
+    // Keep the membership table in step: the churchId on a new user is both
+    // their active church and a membership record.
+    if (record.churchId) {
+      await prisma.churchMembership.upsert({
+        where: { userId_churchId: { userId: record.id, churchId: record.churchId } },
+        create: { userId: record.id, churchId: record.churchId, role: record.role, branchId: record.branchId },
+        update: { role: record.role, branchId: record.branchId },
+      })
+    }
+
     return this.fromPrisma(record)
   }
 
@@ -200,6 +211,17 @@ export class UserService {
     }
 
     const record = await prisma.user.update({ where: { id }, data: updateData })
+
+    // Role/branch are per-church — mirror them onto the membership row for
+    // the user's (new) active church so the membership stays authoritative.
+    if (record.churchId && (data.role !== undefined || data.branchId !== undefined || data.churchId !== undefined)) {
+      await prisma.churchMembership.upsert({
+        where: { userId_churchId: { userId: record.id, churchId: record.churchId } },
+        create: { userId: record.id, churchId: record.churchId, role: record.role, branchId: record.branchId },
+        update: { role: record.role, branchId: record.branchId },
+      })
+    }
+
     return this.fromPrisma(record)
   }
 

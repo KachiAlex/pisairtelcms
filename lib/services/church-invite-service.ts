@@ -93,10 +93,12 @@ export class ChurchInviteService {
     return record as ChurchInvite
   }
 
+  // Invite links are shareable and reusable — one link serves many members
+  // until the admin revokes it. Record usage without consuming the invite.
   static async markUsed(id: string, usedByUserId: string): Promise<ChurchInvite> {
     const record = await prisma.churchInvite.update({
       where: { id },
-      data: { status: 'USED', usedByUserId, usedAt: new Date() },
+      data: { usedByUserId, usedAt: new Date() },
     })
     return record as ChurchInvite
   }

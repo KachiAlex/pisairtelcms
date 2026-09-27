@@ -63,10 +63,16 @@ function LoginForm() {
         return
       }
 
-      // Success - redirect based on actual session role
+      // Success - honor a safe callbackUrl (e.g. returning to an invite),
+      // otherwise redirect based on session role
       const session = await getSession()
       const role = (session?.user as any)?.role
-      window.location.href = role === 'SUPER_ADMIN' ? '/superadmin' : '/dashboard'
+      const callbackUrl = searchParams?.get('callbackUrl')
+      const safeCallback =
+        callbackUrl && callbackUrl.startsWith('/') && !callbackUrl.startsWith('//')
+          ? callbackUrl
+          : null
+      window.location.href = safeCallback ?? (role === 'SUPER_ADMIN' ? '/superadmin' : '/dashboard')
     } catch (err) {
       setError('An error occurred. Please try again.')
       setLoading(false)

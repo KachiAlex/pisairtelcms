@@ -144,7 +144,7 @@ describe('Platform Connection Consistency Property', () => {
   it('should maintain timestamp consistency', () => {
     fc.assert(
       fc.property(
-        fc.date(),
+        fc.date({ noInvalidDate: true }),
         (date) => {
           // Property: Timestamps should be valid dates
           expect(date instanceof Date).toBe(true)

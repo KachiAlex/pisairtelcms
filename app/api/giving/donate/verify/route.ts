@@ -127,7 +127,7 @@ export async function GET(request: Request) {
       giving = await GivingService.create({
         userId,
         churchId,
-        branchId: user?.branchId,
+        branchId: user?.branchId ?? undefined,
         amount,
         currency,
         type,

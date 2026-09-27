@@ -23,14 +23,29 @@ export default function ChurchSwitcher() {
 
   const fetchData = async () => {
     try {
-      // Get current church
+      // Churches this account is a member of (multi-tenant memberships)
+      const mineRes = await fetch('/api/churches/mine')
+      let mine: Church[] = []
+      if (mineRes.ok) {
+        const mineData = await mineRes.json()
+        mine = mineData.churches || []
+        const active = mineData.activeChurchId
+          ? mine.find((c: Church) => c.id === mineData.activeChurchId)
+          : null
+        if (active) setCurrentChurch(active)
+      }
+
+      if (mine.length > 0) {
+        setChurches(mine)
+        return
+      }
+
+      // No memberships — superadmins get the full church list instead
       const currentRes = await fetch('/api/churches/switch')
       if (currentRes.ok) {
         const currentData = await currentRes.json()
         setCurrentChurch(currentData.church)
       }
-
-      // Get available churches for SUPER_ADMIN
       const churchesRes = await fetch('/api/superadmin/churches')
       if (churchesRes.ok) {
         const churchesData = await churchesRes.json()
@@ -57,8 +72,9 @@ export default function ChurchSwitcher() {
       if (res.ok) {
         const selectedChurch = churches.find(c => c.id === churchId)
         setCurrentChurch(selectedChurch || null)
-        // Refresh the page to update context
-        router.refresh()
+        // Full reload: session pointers, permissions, and per-church state
+        // all change with the active tenant.
+        window.location.href = '/dashboard'
       } else {
         const data = await res.json()
         alert(data.error || 'Failed to switch church')

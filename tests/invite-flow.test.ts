@@ -12,6 +12,10 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 vi.mock('next-auth', () => ({ getServerSession: vi.fn() }))
 vi.mock('@/lib/auth-options', () => ({ authOptions: {} }))
 vi.mock('@/lib/prisma', () => ({ prisma: {} }))
+vi.mock('@/lib/church-context', () => ({
+  setCurrentChurchId: vi.fn(),
+  getCurrentChurchId: vi.fn(),
+}))
 
 const mockGuardApi = vi.fn()
 vi.mock('@/lib/api-guard', () => ({ guardApi: (...args: any[]) => mockGuardApi(...args) }))
@@ -44,6 +48,17 @@ vi.mock('@/lib/services/user-service', () => ({
     findById: vi.fn(),
     findByEmail: vi.fn(),
     create: vi.fn(),
+    update: vi.fn(),
+  },
+}))
+
+vi.mock('@/lib/services/church-membership-service', () => ({
+  ChurchMembershipService: {
+    findByUserAndChurch: vi.fn(),
+    findByUser: vi.fn(),
+    isMember: vi.fn(),
+    attach: vi.fn(),
+    detach: vi.fn(),
   },
 }))
 
@@ -80,9 +95,13 @@ import { BranchService, BranchAdminService } from '@/lib/services/branch-service
 import { UserService } from '@/lib/services/user-service'
 import { resolveBranchScope, hasBranchAccess } from '@/lib/services/branch-scope'
 import { canManageUser } from '@/lib/permissions'
+import { ChurchMembershipService } from '@/lib/services/church-membership-service'
+
+import { getServerSession } from 'next-auth'
 
 import { POST as createInvite } from '@/app/api/church-invites/route'
 import { GET as getInvite, POST as acceptInvite } from '@/app/api/invite/[token]/route'
+import { POST as acceptAuthed } from '@/app/api/invite/[token]/accept/route'
 
 // ---------- fixtures ----------
 
@@ -329,15 +348,33 @@ describe('POST /api/invite/[token] (member signup via link)', () => {
     expect(UserService.create).not.toHaveBeenCalled()
   })
 
-  it('rejects duplicate emails without creating a user', async () => {
+  it('returns account_exists (409) when the email belongs to another church', async () => {
     vi.mocked(ChurchInviteService.findByTokenHash).mockResolvedValue(activeInvite as any)
-    vi.mocked(UserService.findByEmail).mockResolvedValue({ id: 'existing' } as any)
+    vi.mocked(UserService.findByEmail).mockResolvedValue({ id: 'existing', churchId: 'church-other' } as any)
+    vi.mocked(ChurchMembershipService.isMember).mockResolvedValue(false)
 
     const res = await acceptInvite(
       postJson('http://x/api/invite/tok', signupBody()) as any,
       tokenParams('tok') as any
     )
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.code).toBe('account_exists')
+    expect(UserService.create).not.toHaveBeenCalled()
+  })
+
+  it('returns already_member (409) when the email already belongs to this church', async () => {
+    vi.mocked(ChurchInviteService.findByTokenHash).mockResolvedValue(activeInvite as any)
+    // membership table says they're already in — even if active pointer differs
+    vi.mocked(UserService.findByEmail).mockResolvedValue({ id: 'existing', churchId: 'church-other' } as any)
+    vi.mocked(ChurchMembershipService.isMember).mockResolvedValue(true)
+
+    const res = await acceptInvite(
+      postJson('http://x/api/invite/tok', signupBody()) as any,
+      tokenParams('tok') as any
+    )
+    expect(res.status).toBe(409)
+    expect((await res.json()).code).toBe('already_member')
     expect(UserService.create).not.toHaveBeenCalled()
   })
 
@@ -406,5 +443,98 @@ describe('POST /api/invite/[token] (member signup via link)', () => {
     const res = await acceptInvite(postJson('http://x/api/invite/tok', signupBody()) as any, tokenParams('tok') as any)
     expect(res.status).toBe(404)
     expect(UserService.create).not.toHaveBeenCalled()
+  })
+})
+
+// ---------- POST /api/invite/[token]/accept (logged-in multi-tenant join) ----------
+
+describe('POST /api/invite/[token]/accept (existing account joins another church)', () => {
+  const authedSession = { user: { id: 'u-existing', email: 'jane@example.com' } }
+
+  beforeEach(() => {
+    vi.mocked(getServerSession).mockResolvedValue(authedSession as any)
+    vi.mocked(ChurchInviteService.findByTokenHash).mockResolvedValue(activeInvite as any)
+    vi.mocked(ChurchService.findById).mockResolvedValue({ id: CHURCH_ID, name: 'Sowers', slug: 'sowers' } as any)
+    vi.mocked(UserService.findById).mockResolvedValue({ id: 'u-existing', churchId: 'church-other', role: 'ADMIN', branchId: null } as any)
+    vi.mocked(ChurchMembershipService.findByUserAndChurch).mockResolvedValue(null)
+    vi.mocked(ChurchMembershipService.attach).mockResolvedValue({} as any)
+    vi.mocked(UserService.update).mockResolvedValue({} as any)
+  })
+
+  it('requires a session', async () => {
+    vi.mocked(getServerSession).mockResolvedValueOnce(null)
+    const res = await acceptAuthed(req('http://x/api/invite/tok/accept', { method: 'POST' }) as any, tokenParams('tok') as any)
+    expect(res.status).toBe(401)
+    expect(ChurchMembershipService.attach).not.toHaveBeenCalled()
+  })
+
+  it('adds a membership and activates the invited church', async () => {
+    const res = await acceptAuthed(req('http://x/api/invite/tok/accept', { method: 'POST' }) as any, tokenParams('tok') as any)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.alreadyMember).toBe(false)
+
+    // membership row created for the invite's church + branch
+    expect(ChurchMembershipService.attach).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u-existing', churchId: CHURCH_ID, role: 'MEMBER' })
+    )
+    // active pointers switched to the new tenant
+    expect(UserService.update).toHaveBeenCalledWith(
+      'u-existing',
+      expect.objectContaining({ churchId: CHURCH_ID })
+    )
+    expect(ChurchInviteService.markUsed).toHaveBeenCalled()
+  })
+
+  it('already-member: no new membership, still activates the church', async () => {
+    vi.mocked(ChurchMembershipService.findByUserAndChurch).mockResolvedValue({
+      id: 'cm-1', userId: 'u-existing', churchId: CHURCH_ID, role: 'LEADER', branchId: HQ.id,
+    } as any)
+
+    const res = await acceptAuthed(req('http://x/api/invite/tok/accept', { method: 'POST' }) as any, tokenParams('tok') as any)
+    expect(res.status).toBe(200)
+    expect((await res.json()).alreadyMember).toBe(true)
+    expect(ChurchMembershipService.attach).not.toHaveBeenCalled()
+    // existing per-church role/branch win over the invite defaults
+    expect(UserService.update).toHaveBeenCalledWith(
+      'u-existing',
+      expect.objectContaining({ churchId: CHURCH_ID, role: 'LEADER', branchId: HQ.id })
+    )
+  })
+
+  it('branch-locked invite applies its branch to the new membership', async () => {
+    vi.mocked(ChurchInviteService.findByTokenHash).mockResolvedValue({ ...activeInvite, branchId: SOUTHWEST.id } as any)
+    vi.mocked(BranchService.findById).mockResolvedValue(SOUTHWEST as any)
+
+    const res = await acceptAuthed(req('http://x/api/invite/tok/accept', { method: 'POST' }) as any, tokenParams('tok') as any)
+    expect(res.status).toBe(200)
+    expect(ChurchMembershipService.attach).toHaveBeenCalledWith(
+      expect.objectContaining({ branchId: SOUTHWEST.id })
+    )
+  })
+
+  it('branch-admin invite assigns the admin role on the branch', async () => {
+    vi.mocked(ChurchInviteService.findByTokenHash).mockResolvedValue({
+      ...activeInvite,
+      purpose: 'BRANCH_ADMIN_SIGNUP',
+      branchId: SOUTHWEST.id,
+    } as any)
+    vi.mocked(BranchService.findById).mockResolvedValue(SOUTHWEST as any)
+
+    const res = await acceptAuthed(req('http://x/api/invite/tok/accept', { method: 'POST' }) as any, tokenParams('tok') as any)
+    expect(res.status).toBe(200)
+    expect(ChurchMembershipService.attach).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'BRANCH_ADMIN', branchId: SOUTHWEST.id })
+    )
+    expect(BranchAdminService.assignAdmin).toHaveBeenCalledWith(
+      expect.objectContaining({ branchId: SOUTHWEST.id, userId: 'u-existing' })
+    )
+  })
+
+  it('410s revoked invites', async () => {
+    vi.mocked(ChurchInviteService.findByTokenHash).mockResolvedValue({ ...activeInvite, status: 'REVOKED' } as any)
+    const res = await acceptAuthed(req('http://x/api/invite/tok/accept', { method: 'POST' }) as any, tokenParams('tok') as any)
+    expect(res.status).toBe(410)
+    expect(ChurchMembershipService.attach).not.toHaveBeenCalled()
   })
 })
