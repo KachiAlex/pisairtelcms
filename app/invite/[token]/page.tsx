@@ -138,7 +138,7 @@ export default function InviteSignupPage({ params }: { params: { token: string }
       return
     }
 
-    if (!ctx?.invite.branchId && !form.branchId) {
+    if (!ctx?.invite.branchId && !form.branchId && flatBranchOptions.length > 0) {
       setBranchValidationError('Please select a branch.')
       return
     }

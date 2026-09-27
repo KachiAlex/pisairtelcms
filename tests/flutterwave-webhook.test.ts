@@ -8,10 +8,14 @@ vi.mock('@/lib/services/payment-service', () => ({
 }))
 
 const mockWebhookEventCreate = vi.fn()
+const mockWebhookEventFindUnique = vi.fn()
+const mockWebhookEventUpdate = vi.fn()
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     webhookEvent: {
       create: mockWebhookEventCreate,
+      findUnique: mockWebhookEventFindUnique,
+      update: mockWebhookEventUpdate,
     },
   },
 }))
@@ -108,7 +112,9 @@ beforeEach(() => {
   mockVerifyPayment.mockResolvedValue({ success: true, transactionId: 'txn_123', amount: 10, currency: 'NGN' })
   mockGetCurrentChurch.mockResolvedValue(null)
   mockFindGivingConfig.mockResolvedValue(null)
-  mockWebhookEventCreate.mockResolvedValue({})
+  mockWebhookEventCreate.mockResolvedValue({ id: 'evt_1' })
+  mockWebhookEventFindUnique.mockResolvedValue({ id: 'evt_1', processedAt: new Date() })
+  mockWebhookEventUpdate.mockResolvedValue({})
 })
 
 describe('Flutterwave webhook', () => {

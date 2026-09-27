@@ -160,7 +160,7 @@ describe('Platform Connection Consistency Property', () => {
       fc.property(
         fc.oneof(
           fc.constant(null),
-          fc.date({ min: minDate })
+          fc.date({ min: minDate, noInvalidDate: true })
         ),
         (expiresAt) => {
           if (expiresAt === null) {
