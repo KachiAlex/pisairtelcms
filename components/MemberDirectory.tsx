@@ -3,11 +3,6 @@
 import { useCallback, useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { formatDate } from '@/lib/utils'
-import {
-  getHierarchyLevelLabels,
-  getHierarchyLevels,
-  type HierarchyLevelDefinition,
-} from '@/lib/services/branch-hierarchy'
 
 type RoleCategory = 'Worker' | 'Leader' | 'Admin'
 
@@ -15,6 +10,7 @@ type BranchOption = {
   id: string
   name: string
   level?: string
+  levelLabel?: string | null
   parentBranchId?: string | null
 }
 
@@ -174,9 +170,6 @@ export default function MemberDirectory() {
   const [addOpen, setAddOpen] = useState(false)
   const [addTab, setAddTab] = useState<'manual' | 'invite'>('manual')
   const [addError, setAddError] = useState('')
-  const [hierarchyLevels, setHierarchyLevels] = useState<HierarchyLevelDefinition[]>(() => [])
-  const [levelLabels, setLevelLabels] = useState<Record<string, string>>({})
-  const [inviteLevelSelections, setInviteLevelSelections] = useState<Record<string, string>>({})
   const [savingManual, setSavingManual] = useState(false)
   const [manualForm, setManualForm] = useState<ManualFormState>(() => getDefaultManualForm())
   const [designations, setDesignations] = useState<Designation[]>([])
@@ -261,55 +254,30 @@ export default function MemberDirectory() {
     return map
   }, [branches])
 
-  const determineDeepestSelection = useCallback(
-    (selections: Record<string, string>) => {
-      let final = ''
-      for (const level of hierarchyLevels) {
-        const value = selections[level.key]
-        if (value) {
-          final = value
-        } else {
-          break
-        }
+  // Flatten the branch tree (DFS) so every active branch is selectable in a
+  // single dropdown regardless of how its level maps to hierarchyLevels —
+  // depth indentation conveys the parent/child structure.
+  const flatBranchOptions = useMemo(() => {
+    const ordered: Array<{ branch: BranchOption; depth: number }> = []
+    const seen = new Set<string>()
+    const walk = (parentKey: string, depth: number) => {
+      for (const branch of branchesByParent[parentKey] ?? []) {
+        if (seen.has(branch.id)) continue
+        seen.add(branch.id)
+        ordered.push({ branch, depth })
+        walk(branch.id, depth + 1)
       }
-      return final
-    },
-    [hierarchyLevels]
-  )
-
-  const handleLevelSelection = useCallback(
-    (levelKey: string, value: string) => {
-      setInviteLevelSelections((prev) => {
-        const next = { ...prev, [levelKey]: value }
-        const levelIndex = hierarchyLevels.findIndex((level) => level.key === levelKey)
-        if (levelIndex !== -1) {
-          for (let i = levelIndex + 1; i < hierarchyLevels.length; i += 1) {
-            delete next[hierarchyLevels[i].key]
-          }
-        }
-        const deepest = determineDeepestSelection(next)
-        setInviteBranchId(deepest)
-        return next
-      })
-    },
-    [determineDeepestSelection, hierarchyLevels]
-  )
-
-  const getLevelOptions = useCallback(
-    (levelIndex: number): BranchOption[] => {
-      const level = hierarchyLevels[levelIndex]
-      if (!level) return []
-      const parentKey =
-        levelIndex === 0
-          ? 'ROOT'
-          : inviteLevelSelections[hierarchyLevels[levelIndex - 1].key] ?? 'ROOT'
-      const normalizedParentKey = parentKey || 'ROOT'
-      return (branchesByParent[normalizedParentKey] || []).filter(
-        (branch) => branch.level === level.key
-      )
-    },
-    [branchesByParent, hierarchyLevels, inviteLevelSelections]
-  )
+    }
+    walk('ROOT', 0)
+    // Orphans whose parent is missing/inactive still need to be selectable.
+    for (const branch of branches) {
+      if (!seen.has(branch.id)) {
+        seen.add(branch.id)
+        ordered.push({ branch, depth: 0 })
+      }
+    }
+    return ordered
+  }, [branches, branchesByParent])
 
   const selectedInviteBranch = useMemo(
     () => branches.find((branch) => branch.id === inviteBranchId) ?? null,
@@ -536,30 +504,12 @@ export default function MemberDirectory() {
   useEffect(() => {
     if (!addOpen || addTab !== 'invite') return
     setInviteBranchId('')
-    setInviteLevelSelections({})
   }, [addOpen, addTab])
 
   useEffect(() => {
     if (!addOpen || addTab !== 'invite') return
     fetchMemberInvite(inviteBranchId || undefined)
   }, [addOpen, addTab, inviteBranchId, fetchMemberInvite])
-
-  const loadHierarchy = useCallback(async (churchId: string) => {
-    try {
-      const res = await fetch(`/api/churches/${churchId}`)
-      if (!res.ok) {
-        throw new Error('Unable to load church configuration')
-      }
-      const data = await res.json()
-      const normalizedLevels = getHierarchyLevels(data)
-      setHierarchyLevels(normalizedLevels)
-      setLevelLabels(getHierarchyLevelLabels(data))
-    } catch (error) {
-      console.error('Error loading hierarchy:', error)
-      setHierarchyLevels([])
-      setLevelLabels({})
-    }
-  }, [])
 
   const loadBranches = useCallback(async () => {
     try {
@@ -568,8 +518,6 @@ export default function MemberDirectory() {
       
       if (userData.churchId) {
         setCurrentBranchId(userData.branchId || null)
-
-        await loadHierarchy(userData.churchId)
 
         const res = await fetch(`/api/churches/${userData.churchId}/branches`)
         if (res.ok) {
@@ -580,7 +528,7 @@ export default function MemberDirectory() {
     } catch (error) {
       console.error('Error loading branches:', error)
     }
-  }, [loadHierarchy])
+  }, [])
 
   const roleCategoryFor = useCallback((role: string): RoleCategory => {
     const normalized = role?.toUpperCase()
@@ -1120,42 +1068,29 @@ export default function MemberDirectory() {
 
                   <div className="space-y-4 rounded-lg border border-gray-200 p-4 bg-gray-50">
                     <div className="text-xs font-semibold text-gray-500 uppercase">Choose branch destination</div>
-                    {hierarchyLevels.length === 0 && (
-                      <div className="text-sm text-gray-500">Loading hierarchy configuration…</div>
+                    {flatBranchOptions.length === 0 && (
+                      <div className="text-sm text-gray-500">
+                        No branches found. Create branches first before generating branch-specific invites.
+                      </div>
                     )}
-                    {hierarchyLevels.length > 0 && (
-                      <div className="space-y-3">
-                        {hierarchyLevels.map((level, index) => {
-                          const options = getLevelOptions(index)
-                          const label = levelLabels[level.key] ?? level.label ?? `Level ${index + 1}`
-                          if (options.length === 0) {
-                            if (index === 0) {
-                              return (
-                                <div key={level.key} className="text-sm text-gray-500">
-                                  No {label} branches found. Create branches first before generating branch-specific invites.
-                                </div>
-                              )
-                            }
-                            return null
-                          }
-                          return (
-                            <div key={level.key} className="space-y-1">
-                              <label className="text-xs font-semibold text-gray-600">{label}</label>
-                              <select
-                                value={inviteLevelSelections[level.key] ?? ''}
-                                onChange={(e) => handleLevelSelection(level.key, e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900"
-                              >
-                                <option value="">Select {label}</option>
-                                {options.map((option) => (
-                                  <option key={option.id} value={option.id}>
-                                    {option.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          )
-                        })}
+                    {flatBranchOptions.length > 0 && (
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-gray-600">Branch</label>
+                        <select
+                          value={inviteBranchId}
+                          onChange={(e) => setInviteBranchId(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900"
+                        >
+                          <option value="">Let member choose during signup</option>
+                          {flatBranchOptions.map(({ branch, depth }) => (
+                            <option key={branch.id} value={branch.id}>
+                              {'\u00A0'.repeat(depth * 4)}
+                              {depth > 0 ? '↳ ' : ''}
+                              {branch.name}
+                              {branch.levelLabel ? ` (${branch.levelLabel})` : ''}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     )}
                     <div className="text-xs text-gray-500">
