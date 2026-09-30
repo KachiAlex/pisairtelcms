@@ -3,6 +3,7 @@ import { SubscriptionPlanService } from '@/lib/services/subscription-service'
 import { SubscriptionPricingService } from '@/lib/services/subscription-pricing-service'
 import { PaymentService } from '@/lib/services/payment-service'
 import { LandingPaymentService } from '@/lib/services/landing-payment-service'
+import { EmailService } from '@/lib/services/email-service'
 
 export const dynamic = 'force-dynamic'
 
@@ -92,6 +93,23 @@ export async function POST(request: Request) {
       notes,
       status: 'INITIATED',
     })
+
+    await EmailService.notifyAdmin(
+      `New checkout: ${plan.name} — ${fullName}`,
+      `<h2>New plan checkout initiated</h2>
+       <ul>
+         <li><b>Name:</b> ${fullName}</li>
+         <li><b>Email:</b> ${email}</li>
+         <li><b>Church:</b> ${churchName || '—'}</li>
+         <li><b>Phone:</b> ${phone || '—'}</li>
+         <li><b>Plan:</b> ${plan.name}</li>
+         <li><b>Amount:</b> ${currency} ${amount}</li>
+         <li><b>Promo:</b> ${appliedPromoCode || '—'}</li>
+         <li><b>Reference:</b> ${reference}</li>
+         ${notes ? `<li><b>Notes:</b> ${notes}</li>` : ''}
+       </ul>`,
+      `New checkout: ${fullName} <${email}> — ${plan.name} (${currency} ${amount}), ref ${reference}`
+    ).catch((e) => console.error('[public.checkout] admin notify failed', e))
 
     const payment = await PaymentService.initializePayment({
       reference,

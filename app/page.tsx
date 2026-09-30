@@ -998,6 +998,9 @@ export default function Home() {
               <p className="text-[13px] text-[#9b9a94] leading-[1.6] max-w-[200px]">
                 Church management software built for how churches actually run.
               </p>
+              <a href="mailto:admin@pisairtel.com" className="mt-4 inline-block text-[13px] font-medium text-[#5b5c63] hover:text-[#15161a] transition-colors">
+                admin@pisairtel.com
+              </a>
             </div>
             <div>
               <h3 className="font-['JetBrains_Mono'] text-[11px] uppercase tracking-[0.12em] text-[#9b9a94] mb-4">Product</h3>
@@ -1011,7 +1014,7 @@ export default function Home() {
               <h3 className="font-['JetBrains_Mono'] text-[11px] uppercase tracking-[0.12em] text-[#9b9a94] mb-4">Company</h3>
               <ul className="space-y-2.5">
                 <li><a href="#" className="text-[14px] text-[#5b5c63] hover:text-[#15161a] transition-colors">About</a></li>
-                <li><a href="#" className="text-[14px] text-[#5b5c63] hover:text-[#15161a] transition-colors">Contact</a></li>
+                <li><a href="mailto:admin@pisairtel.com" className="text-[14px] text-[#5b5c63] hover:text-[#15161a] transition-colors">Contact</a></li>
                 <li><a href="#" className="text-[14px] text-[#5b5c63] hover:text-[#15161a] transition-colors">Blog</a></li>
               </ul>
             </div>

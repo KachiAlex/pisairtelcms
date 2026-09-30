@@ -112,7 +112,7 @@ export default async function TenantSlugLoginPage({ params }: { params: { slug: 
                 {error ? 'Please try again later' : 'Enter a valid church slug to continue.'}
               </p>
               <p className="mt-2 text-sm text-gray-600">
-                Need help? Email support@pisairtel.app and we will resend your tenant details.
+                Need help? Email <a href="mailto:admin@pisairtel.com" className="text-primary-600 hover:underline">admin@pisairtel.com</a> and we will resend your tenant details.
               </p>
               <Link
                 href="/login"

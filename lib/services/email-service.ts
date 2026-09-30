@@ -15,6 +15,19 @@ interface EmailOptions {
 export class EmailService {
   private static provider: 'brevo' | 'resend' | 'sendgrid' | 'ses' | null = null
 
+  /** Official inbox — all public form submissions (checkout, registration) route here. */
+  static get ADMIN_EMAIL(): string {
+    return process.env.ADMIN_EMAIL || 'admin@pisairtel.com'
+  }
+
+  /**
+   * Notify the site admin inbox. Never throws — failures are logged and
+   * reported via the return value so form submissions aren't blocked.
+   */
+  static async notifyAdmin(subject: string, html: string, text?: string) {
+    return this.sendEmail({ to: this.ADMIN_EMAIL, subject, html, text })
+  }
+
   /**
    * Initialize email service based on available environment variables
    * Brevo is the preferred provider on this VPS.

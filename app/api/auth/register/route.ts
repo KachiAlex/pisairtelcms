@@ -5,6 +5,7 @@ import { UserService } from '@/lib/services/user-service'
 import { ChurchService, generateSlug } from '@/lib/services/church-service'
 import { SubscriptionPlanService, SubscriptionService } from '@/lib/services/subscription-service'
 import { LICENSING_PLANS, getPlanConfig, recommendPlan } from '@/lib/licensing/plans'
+import { EmailService } from '@/lib/services/email-service'
 
 export async function POST(request: Request) {
   try {
@@ -148,6 +149,20 @@ export async function POST(request: Request) {
     await ChurchService.update(church.id, {
       subscriptionId: subscription.id,
     })
+
+    await EmailService.notifyAdmin(
+      `New church registration: ${churchName}`,
+      `<h2>New church registered</h2>
+       <ul>
+         <li><b>Church:</b> ${churchName} (${slug})</li>
+         <li><b>Admin:</b> ${firstName} ${lastName} &lt;${email}&gt;</li>
+         <li><b>Location:</b> ${[city, country].filter(Boolean).join(', ') || '—'}</li>
+         <li><b>Est. members:</b> ${numericMembers ?? '—'}</li>
+         <li><b>Plan:</b> ${selectedPlan.name}</li>
+         <li><b>Trial ends:</b> ${trialEndsAt.toISOString().slice(0, 10)}</li>
+       </ul>`,
+      `New church: ${churchName} (${slug}) — admin ${firstName} ${lastName} <${email}>, plan ${selectedPlan.name}`
+    ).catch((e) => console.error('[register] admin notify failed', e))
 
     // Return success response (don't return sensitive data)
     return NextResponse.json(
