@@ -37,7 +37,7 @@ export default async function TenantSlugLoginPage({ params }: { params: { slug: 
             <div className="relative">
               <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 blur-sm opacity-40" />
               <div className="relative flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 shadow-lg shadow-primary-500/20">
-                <img src="/favicon.svg" alt="Pisairtel CMS" className="h-8 w-8" />
+                <img src="/logo.svg" alt="Pisairtel CMS" className="h-8 w-8" />
               </div>
             </div>
             <span className="text-2xl font-bold tracking-tight text-gray-900">Pisairtel</span>

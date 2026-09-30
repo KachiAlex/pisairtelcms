@@ -379,20 +379,8 @@ export default function Home() {
       <header className="sticky top-0 z-[60] bg-[#faf9f5]/86 backdrop-blur-md border-b border-[#e6e2d8]">
         <div className="max-w-[1180px] mx-auto px-8 flex items-center justify-between h-[78px]">
           <Link href="/" className="flex items-center gap-2.5">
-            <svg width="32" height="32" viewBox="0 0 400 400" className="w-8 h-8 block">
-              <defs><linearGradient id="hg" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#F7C93C"/><stop offset="28%" stopColor="#F7931E"/>
-                <stop offset="55%" stopColor="#E8286E"/><stop offset="80%" stopColor="#C0208A"/><stop offset="100%" stopColor="#8E1FA0"/>
-              </linearGradient></defs>
-              <circle cx="200" cy="200" r="180" fill="url(#hg)"/>
-              <circle cx="200" cy="200" r="160" fill="#000000"/>
-              <circle cx="200" cy="200" r="148" fill="#FFFFFF"/>
-              <g transform="translate(200,200) scale(1.28)">
-                <rect x="-70" y="-52" width="140" height="100" rx="14" fill="none" stroke="#E31E24" strokeWidth="8"/>
-                <circle cx="-52" cy="-34" r="5" fill="#E31E24"/><circle cx="-32" cy="-34" r="5" fill="#E31E24"/>
-                <path d="M-8 -28 L8 -28 L8 -10 L26 -10 L26 6 L8 6 L8 40 L-8 40 L-8 6 L-26 6 L-26 -10 L-8 -10 Z" fill="#E31E24"/>
-              </g>
-            </svg>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.svg" alt="Pisairtel CMS" className="w-8 h-8 block" />
             <div className="font-['Fraunces'] font-semibold text-[19px]">
               Pisairtel<span className="text-[#e31e24] font-bold text-[11px] tracking-[0.06em] align-middle ml-0.5">CMS</span>
             </div>
@@ -977,20 +965,8 @@ export default function Home() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-10">
             <div>
               <Link href="/" className="flex items-center gap-2.5 mb-5">
-                <svg width="28" height="28" viewBox="0 0 400 400" className="w-7 h-7 block">
-                  <defs><linearGradient id="fg" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#F7C93C"/><stop offset="28%" stopColor="#F7931E"/>
-                    <stop offset="55%" stopColor="#E8286E"/><stop offset="80%" stopColor="#C0208A"/><stop offset="100%" stopColor="#8E1FA0"/>
-                  </linearGradient></defs>
-                  <circle cx="200" cy="200" r="180" fill="url(#fg)"/>
-                  <circle cx="200" cy="200" r="160" fill="#000000"/>
-                  <circle cx="200" cy="200" r="148" fill="#FFFFFF"/>
-                  <g transform="translate(200,200) scale(1.28)">
-                    <rect x="-70" y="-52" width="140" height="100" rx="14" fill="none" stroke="#E31E24" strokeWidth="8"/>
-                    <circle cx="-52" cy="-34" r="5" fill="#E31E24"/><circle cx="-32" cy="-34" r="5" fill="#E31E24"/>
-                    <path d="M-8 -28 L8 -28 L8 -10 L26 -10 L26 6 L8 6 L8 40 L-8 40 L-8 6 L-26 6 L-26 -10 L-8 -10 Z" fill="#E31E24"/>
-                  </g>
-                </svg>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/logo.svg" alt="Pisairtel CMS" className="w-7 h-7 block" />
                 <div className="font-['Fraunces'] font-semibold text-[17px]">
                   Pisairtel<span className="text-[#e31e24] font-bold text-[10px] tracking-[0.06em] align-middle ml-0.5">CMS</span>
                 </div>

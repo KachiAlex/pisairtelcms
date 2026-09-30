@@ -1,55 +1,14 @@
 import { ImageResponse } from 'next/og'
+import { LOGO_DATA_URI } from '@/lib/branding/constants'
 
 export const runtime = 'edge'
 
-export const alt = 'pi-CMS — Pisairtel Church Management System'
+export const alt = 'Pisairtel CMS — Church Management, Simplified'
 export const size = {
   width: 1200,
   height: 630,
 }
 export const contentType = 'image/png'
-
-function PiMark({ s }: { s: number }) {
-  // Geometric pi glyph drawn from divs — no font dependency.
-  const px = (v: number) => Math.round(v * s)
-  return (
-    <div style={{ position: 'relative', width: px(64), height: px(64), display: 'flex' }}>
-      <div
-        style={{
-          position: 'absolute',
-          left: px(14),
-          top: px(16),
-          width: px(36),
-          height: px(9),
-          borderRadius: px(2.5),
-          background: 'white',
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          left: px(20),
-          top: px(22),
-          width: px(9),
-          height: px(30),
-          borderRadius: px(2.5),
-          background: 'white',
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          left: px(35),
-          top: px(22),
-          width: px(9),
-          height: px(30),
-          borderRadius: px(2.5),
-          background: 'white',
-        }}
-      />
-    </div>
-  )
-}
 
 export default function OpenGraphImage() {
   return new ImageResponse(
@@ -62,30 +21,22 @@ export default function OpenGraphImage() {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          background: 'linear-gradient(135deg, #1e3a8a 0%, #4f46e5 60%, #7c3aed 100%)',
+          background: '#15161a',
           fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial',
         }}
       >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={LOGO_DATA_URI} width={168} height={168} alt="" style={{ marginBottom: 40 }} />
         <div
           style={{
-            display: 'flex',
-            background: 'rgba(255,255,255,0.14)',
-            borderRadius: 44,
-            marginBottom: 48,
-          }}
-        >
-          <PiMark s={3} />
-        </div>
-        <div
-          style={{
-            fontSize: 96,
+            fontSize: 92,
             fontWeight: 800,
             color: 'white',
             lineHeight: 1,
             letterSpacing: -2,
           }}
         >
-          pi-CMS
+          Pisairtel CMS
         </div>
         <div
           style={{

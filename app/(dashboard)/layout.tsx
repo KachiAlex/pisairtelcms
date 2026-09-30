@@ -65,7 +65,7 @@ export default async function DashboardLayout({
 
   const brandName = activeChurch?.name ?? 'Pisairtel CMS'
   const brandTagline = activeChurch?.tagline ?? 'Modern Church Management & Discipleship Platform'
-  const brandLogo = activeChurch?.logo ?? '/favicon.svg'
+  const brandLogo = activeChurch?.logo ?? '/logo.svg'
   const brandInitial = brandName?.[0]?.toUpperCase() ?? 'P'
   const profileName =
     [user?.firstName, user?.lastName].filter(Boolean).join(' ') || session.user?.name || 'Admin user'
